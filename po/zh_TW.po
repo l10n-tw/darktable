@@ -8,7 +8,7 @@ msgstr ""
 "Project-Id-Version: darktable master\n"
 "Report-Msgid-Bugs-To: \n"
 "POT-Creation-Date: 2020-03-14 14:53+0800\n"
-"PO-Revision-Date: 2020-03-14 21:10+0800\n"
+"PO-Revision-Date: 2020-03-21 22:37+0800\n"
 "Last-Translator: Cheng-Chia Tseng <pswo10680@gmail.com>\n"
 "Language-Team: Traditional Chinese <chinese-l10n@googlegroups.com>\n"
 "Language: zh_TW\n"
@@ -10759,10 +10759,9 @@ msgid "edges refinement or feathering"
 msgstr "邊線精修或羽化"
 
 #: ../src/iop/toneequal.c:323
-#, fuzzy
 msgctxt "accel"
 msgid "mask quantization"
-msgstr "遮罩"
+msgstr "遮罩量化壓縮"
 
 #: ../src/iop/toneequal.c:324
 msgctxt "accel"
@@ -11003,14 +11002,17 @@ msgstr ""
 
 #: ../src/iop/toneequal.c:3374
 msgid "mask quantization"
-msgstr ""
+msgstr "遮罩量化壓縮"
 
 #: ../src/iop/toneequal.c:3376
+#, fuzzy
 msgid ""
 "0 disables the quantization.\n"
 "higher values posterize the luminance mask to help the guiding\n"
 "produce piece-wise smooth areas when using high feathering values"
 msgstr ""
+"0 會停用遮罩量化壓縮。\n"
+"較高的值"
 
 #: ../src/iop/toneequal.c:3384
 msgid "mask exposure compensation"
@@ -11257,7 +11259,7 @@ msgstr "選取水印色彩"
 
 #: ../src/iop/watermark.c:1491
 msgid "pick color from image"
-msgstr ""
+msgstr "從影像揀選色彩"
 
 #. Simple text
 #: ../src/iop/watermark.c:1501
@@ -11608,7 +11610,7 @@ msgstr "在畫布的亮點樣本上點按滑鼠鎖定"
 
 #: ../src/libs/colorpicker.c:412
 msgid "X"
-msgstr ""
+msgstr "X"
 
 #: ../src/libs/colorpicker.c:518
 msgid "live samples"
@@ -11689,7 +11691,7 @@ msgstr "清除影像歷史紀錄？"
 
 #: ../src/libs/copy_history.c:309 ../src/libs/image.c:385
 msgid "copy..."
-msgstr ""
+msgstr "複製..."
 
 #: ../src/libs/copy_history.c:312
 msgid ""
@@ -11709,7 +11711,7 @@ msgstr "複製首選影像的部分歷史紀錄"
 
 #: ../src/libs/copy_history.c:324
 msgid "paste..."
-msgstr ""
+msgstr "貼上..."
 
 #: ../src/libs/copy_history.c:326
 msgid ""
@@ -11729,17 +11731,19 @@ msgstr "貼上歷史紀錄於所有所選影像"
 
 #: ../src/libs/copy_history.c:338
 msgid "compress history"
-msgstr ""
+msgstr "壓縮歷史"
 
 #: ../src/libs/copy_history.c:340
 msgid ""
 "compress history stack of\n"
 "all selected images"
 msgstr ""
+"壓縮所有選取影像\n"
+"的歷史記錄"
 
 #: ../src/libs/copy_history.c:343
 msgid "discard history"
-msgstr ""
+msgstr "丟棄歷史"
 
 #: ../src/libs/copy_history.c:346
 msgid ""
@@ -11757,7 +11761,7 @@ msgstr "如何處理存在的歷史"
 
 #: ../src/libs/copy_history.c:360
 msgid "load sidecar file..."
-msgstr ""
+msgstr "載入附屬檔案..."
 
 #: ../src/libs/copy_history.c:363
 msgid ""
@@ -11928,7 +11932,7 @@ msgstr "使用目前設定匯出"
 
 #: ../src/libs/export.c:724
 msgid "edit metadata exportation details"
-msgstr ""
+msgstr "編輯中介資料匯出詳細資訊"
 
 #. enable shortcut to export with current export settings:
 #: ../src/libs/export.c:1311 ../src/libs/styles.c:71
@@ -11939,7 +11943,7 @@ msgstr "匯出"
 
 #: ../src/libs/export_metadata.c:159
 msgid "select tag"
-msgstr ""
+msgstr "選取標記"
 
 #: ../src/libs/export_metadata.c:160
 msgid "done"
@@ -11947,13 +11951,13 @@ msgstr "完成"
 
 #: ../src/libs/export_metadata.c:170
 msgid "list filter"
-msgstr ""
+msgstr "列表過濾"
 
 #: ../src/libs/export_metadata.c:181
 msgid ""
 "list of available tags. click 'add' button or double-click on tag to add the "
 "selected one"
-msgstr ""
+msgstr "可用標記的列表。點按「加入」按鈕或雙點標記兩下可以加入所選項目"
 
 #: ../src/libs/export_metadata.c:187
 msgid "type"
@@ -12238,15 +12242,15 @@ msgstr "依賴目前壓縮歷史紀錄建立一個風格"
 
 #: ../src/libs/history.c:189
 msgid "always-on module"
-msgstr ""
+msgstr "總是開啟的模組"
 
 #: ../src/libs/history.c:198
 msgid "default enabled module"
-msgstr ""
+msgstr "預設啟用的模組"
 
 #: ../src/libs/history.c:207
 msgid "deprecated module"
-msgstr ""
+msgstr "棄用的模組"
 
 #: ../src/libs/history.c:677 ../src/libs/snapshots.c:346
 msgid "original"
@@ -12279,7 +12283,7 @@ msgstr "從收藏集中移除"
 
 #: ../src/libs/image.c:378
 msgid "move..."
-msgstr ""
+msgstr "移動..."
 
 #: ../src/libs/image.c:381
 msgid "move to other folder"
@@ -12368,23 +12372,23 @@ msgstr "色彩"
 
 #: ../src/libs/image.c:470
 msgid "select colors metadata"
-msgstr ""
+msgstr "選取色彩中介資料"
 
 #: ../src/libs/image.c:477
 msgid "select tags metadata"
-msgstr ""
+msgstr "選取標記中介資料"
 
 #: ../src/libs/image.c:484
 msgid "select geo tags metadata"
-msgstr ""
+msgstr "選取地理位置中介資料"
 
 #: ../src/libs/image.c:491
 msgid "select dt metadata (from metadata editor module)"
-msgstr ""
+msgstr "選取 dt 中介資料（取自中介資料編輯器模組）"
 
 #: ../src/libs/image.c:500
 msgid "set the (first) selected image as source of metadata"
-msgstr ""
+msgstr "將（第一張）所選影像設定為中介資料來源"
 
 #: ../src/libs/image.c:504
 msgid "paste"
@@ -12556,11 +12560,11 @@ msgstr "匯入選項"
 #. recursive opening.
 #: ../src/libs/import.c:433
 msgid "import folders recursively"
-msgstr ""
+msgstr "遞迴式匯入資料夾"
 
 #: ../src/libs/import.c:435
 msgid "recursively import subfolders. Each folder goes into a new film roll."
-msgstr ""
+msgstr "遞迴式匯入子資料夾。每個資料夾都會設為一段新膠卷。"
 
 #: ../src/libs/import.c:773
 msgid "supported images"
@@ -12572,12 +12576,12 @@ msgstr "檔案格式未知！"
 
 #: ../src/libs/import.c:854
 msgid "import folder"
-msgstr ""
+msgstr "匯入資料夾"
 
 #. add import single image buttons
 #: ../src/libs/import.c:970
 msgid "image..."
-msgstr ""
+msgstr "影像..."
 
 #: ../src/libs/import.c:974
 msgid "select one or more images to import"
@@ -12869,16 +12873,16 @@ msgstr "<保留未修改>"
 
 #: ../src/libs/metadata.c:401
 msgid "metadata settings"
-msgstr ""
+msgstr "中介資料設定"
 
 #: ../src/libs/metadata.c:409
 msgid "hidden"
-msgstr ""
+msgstr "隱藏"
 
 #: ../src/libs/metadata.c:411 ../src/libs/tagging.c:1417
 #: ../src/libs/tagging.c:1604
 msgid "private"
-msgstr ""
+msgstr "私人"
 
 #: ../src/libs/metadata.c:466
 msgctxt "accel"
@@ -12887,7 +12891,7 @@ msgstr "清除"
 
 #: ../src/libs/metadata.c:530
 msgid "metadata list"
-msgstr ""
+msgstr "中介資料列表"
 
 #: ../src/libs/metadata.c:632
 msgid ""
@@ -13178,7 +13182,7 @@ msgstr "搜尋模組"
 
 #: ../src/libs/modulegroups.c:254
 msgid "search modules by name or tag"
-msgstr ""
+msgstr "依據名稱或標記搜尋模組"
 
 #: ../src/libs/modulegroups.c:261
 msgid "clear text"
@@ -13190,11 +13194,11 @@ msgstr "更多模組"
 
 #: ../src/libs/modulelist.c:359
 msgid "subset: no module"
-msgstr ""
+msgstr "子集：無模組"
 
 #: ../src/libs/modulelist.c:360
 msgid "subset: all modules"
-msgstr ""
+msgstr "子集：所有模組"
 
 #. basic raw handling
 #. cropping & orientation
@@ -13204,7 +13208,7 @@ msgstr ""
 #. local contrast / sharpness
 #: ../src/libs/modulelist.c:375
 msgid "subset: default modules"
-msgstr ""
+msgstr "子集：預設模組"
 
 #. default modules
 #. basic raw handling
@@ -13220,7 +13224,7 @@ msgstr ""
 #. image reconstruction
 #: ../src/libs/modulelist.c:391
 msgid "workspace: all-purpose"
-msgstr ""
+msgstr "工作空間：所有用途"
 
 #. default modules
 #. basic raw handling
@@ -13239,7 +13243,7 @@ msgstr ""
 #. HDR reconstruction - tones
 #: ../src/libs/modulelist.c:410
 msgid "workspace: landscape & HDR"
-msgstr ""
+msgstr "工作空間：風景和HDR"
 
 #. default modules
 #. basic raw handling
@@ -13257,7 +13261,7 @@ msgstr ""
 #. perspective and spot removal
 #: ../src/libs/modulelist.c:429
 msgid "workspace: architecture & streets"
-msgstr ""
+msgstr "工作空間：建築和街道"
 
 #. default modules
 #. basic raw handling
@@ -13276,7 +13280,7 @@ msgstr ""
 #. skin retouch
 #: ../src/libs/modulelist.c:449
 msgid "workspace: portrait & beauty"
-msgstr ""
+msgstr "工作空間：人像和美人"
 
 #. default modules
 #. basic raw handling
@@ -13294,15 +13298,15 @@ msgstr ""
 #. extra denoising methods
 #: ../src/libs/modulelist.c:468
 msgid "workspace: lowlight & high ISO"
-msgstr ""
+msgstr "工作空間：低光源和高ISO"
 
 #: ../src/libs/modulelist.c:476
 msgid "subset: creative modules only"
-msgstr ""
+msgstr "子集：僅創意模組"
 
 #: ../src/libs/modulelist.c:486
 msgid "subset: technical modules only"
-msgstr ""
+msgstr "子集：僅技術模組"
 
 #: ../src/libs/navigation.c:62
 msgid "navigation"
@@ -13685,7 +13689,7 @@ msgstr "從選定影像的歷史紀錄建立風格"
 #. edit
 #: ../src/libs/styles.c:451
 msgid "edit..."
-msgstr ""
+msgstr "編輯..."
 
 #: ../src/libs/styles.c:454
 msgid "edit the selected style in list above"
