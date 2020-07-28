@@ -125,7 +125,7 @@ static inline float v_minf(const float vector[3])
 }
 
 
-DT_MODULE_INTROSPECTION(1, dt_iop_negadoctor_params_t)
+DT_MODULE_INTROSPECTION(2, dt_iop_negadoctor_params_t)
 
 
 typedef enum dt_iop_negadoctor_filmstock_t
@@ -137,31 +137,18 @@ typedef enum dt_iop_negadoctor_filmstock_t
 } dt_iop_negadoctor_filmstock_t;
 
 
-typedef enum dt_iop_negadoctor_pickcolor_type_t
-{
-  DT_NEGADOCTOR_NONE = 0,
-  DT_NEGADOCTOR_DMIN = 1,
-  DT_NEGADOCTOR_WB_high = 2,
-  DT_NEGADOCTOR_OFFSET = 3,
-  DT_NEGADOCTOR_DMAX = 4,
-  DT_NEGADOCTOR_WB_low = 5,
-  DT_NEGADOCTOR_EXPOSURE = 6,
-  DT_NEGADOCTOR_BLACK = 7
-} dt_iop_negadoctor_pickcolor_type_t;
-
-
 typedef struct dt_iop_negadoctor_params_t
 {
   dt_iop_negadoctor_filmstock_t film_stock;
-  float DT_ALIGNED_PIXEL Dmin[4];         // color of film substrate
-  float DT_ALIGNED_PIXEL wb_high[4];      // white balance RGB coeffs (illuminant)
-  float DT_ALIGNED_PIXEL wb_low[4];       // white balance RGB offsets (base light)
-  float D_max;                            // max density of film
-  float offset;                           // inversion offset
-  float black;                            // display black level
-  float gamma;                            // display gamma
-  float soft_clip;                        // highlights roll-off
-  float exposure;                         // extra exposure
+  float Dmin[4];                            // color of film substrate
+  float wb_high[4];                         // white balance RGB coeffs (illuminant)
+  float wb_low[4];                          // white balance RGB offsets (base light)
+  float D_max;                              // max density of film
+  float offset;                             // inversion offset
+  float black;                              // display black level
+  float gamma;                              // display gamma
+  float soft_clip;                          // highlights roll-off
+  float exposure;                           // extra exposure
 } dt_iop_negadoctor_params_t;
 
 
@@ -191,7 +178,6 @@ typedef struct dt_iop_negadoctor_gui_data_t
   GtkWidget *Dmin_picker, *Dmin_sampler;
   GtkWidget *WB_high_picker, *WB_high_sampler;
   GtkWidget *WB_low_picker, *WB_low_sampler;
-  dt_iop_color_picker_t color_picker;
 } dt_iop_negadoctor_gui_data_t;
 
 
@@ -224,6 +210,58 @@ int default_colorspace(dt_iop_module_t *self, dt_dev_pixelpipe_t *pipe, dt_dev_p
   return iop_cs_rgb;
 }
 
+int legacy_params(dt_iop_module_t *self, const void *const old_params, const int old_version,
+                  void *new_params, const int new_version)
+{
+  if(old_version == 1 && new_version == 2)
+  {
+    typedef struct dt_iop_negadoctor_params_v1_t
+    {
+      dt_iop_negadoctor_filmstock_t film_stock;
+      float DT_ALIGNED_PIXEL Dmin[4];         // color of film substrate
+      float DT_ALIGNED_PIXEL wb_high[4];      // white balance RGB coeffs (illuminant)
+      float DT_ALIGNED_PIXEL wb_low[4];       // white balance RGB offsets (base light)
+      float D_max;                            // max density of film
+      float offset;                           // inversion offset
+      float black;                            // display black level
+      float gamma;                            // display gamma
+      float soft_clip;                        // highlights roll-off
+      float exposure;                         // extra exposure
+    } dt_iop_negadoctor_params_v1_t;
+
+    dt_iop_negadoctor_params_v1_t *o = (dt_iop_negadoctor_params_v1_t *)old_params;
+    dt_iop_negadoctor_params_t *n = (dt_iop_negadoctor_params_t *)new_params;
+    dt_iop_negadoctor_params_t *d = (dt_iop_negadoctor_params_t *)self->default_params;
+
+    *n = *d; // start with a fresh copy of default parameters
+
+    // WARNING: when copying the arrays in a for loop, gcc wrongly assumed
+    //          that n and o were aligned and used AVX instructions for me,
+    //          which segfaulted. let's hope this doesn't get optimized too much.
+    n->film_stock = o->film_stock;
+    n->Dmin[0] = o->Dmin[0];
+    n->Dmin[1] = o->Dmin[1];
+    n->Dmin[2] = o->Dmin[2];
+    n->Dmin[3] = o->Dmin[3];
+    n->wb_high[0] = o->wb_high[0];
+    n->wb_high[1] = o->wb_high[1];
+    n->wb_high[2] = o->wb_high[2];
+    n->wb_high[3] = o->wb_high[3];
+    n->wb_low[0] = o->wb_low[0];
+    n->wb_low[1] = o->wb_low[1];
+    n->wb_low[2] = o->wb_low[2];
+    n->wb_low[3] = o->wb_low[3];
+    n->D_max = o->D_max;
+    n->offset = o->offset;
+    n->black = o->black;
+    n->gamma = o->gamma;
+    n->soft_clip = o->soft_clip;
+    n->exposure = o->exposure;
+
+    return 0;
+  }
+  return 1;
+}
 
 void commit_params(dt_iop_module_t *self, dt_iop_params_t *p1, dt_dev_pixelpipe_t *pipe,
                    dt_dev_pixelpipe_iop_t *piece)
@@ -257,14 +295,14 @@ void commit_params(dt_iop_module_t *self, dt_iop_params_t *p1, dt_dev_pixelpipe_
 
 
 void process(struct dt_iop_module_t *const self, dt_dev_pixelpipe_iop_t *const piece,
-             const void *const restrict DT_ALIGNED_ARRAY ivoid, void *const restrict DT_ALIGNED_ARRAY ovoid,
+             const void *const restrict ivoid, void *const restrict ovoid,
              const dt_iop_roi_t *const restrict roi_in, const dt_iop_roi_t *const restrict roi_out)
 {
   const dt_iop_negadoctor_data_t *const d = piece->data;
   assert(piece->colors = 4);
 
-  const float *const restrict DT_ALIGNED_ARRAY in = (float *)ivoid;
-  float *const restrict DT_ALIGNED_ARRAY out = (float *)ovoid;
+  const float *const restrict in = (float *)ivoid;
+  float *const restrict out = (float *)ovoid;
 
 
 #ifdef _OPENMP
@@ -274,14 +312,14 @@ void process(struct dt_iop_module_t *const self, dt_dev_pixelpipe_iop_t *const p
 #endif
   for(size_t k = 0; k < roi_out->height * roi_out->width * 4; k += 4)
   {
-    for(size_t c = 0; c < 4; c++) // not sure if
+    for(size_t c = 0; c < 4; c++)
     {
       // Unpack vectors one by one with extra pragmas to be sure the compiler understands they can be vectorized
-      const float *const restrict DT_ALIGNED_PIXEL pix_in = in + k;
-      float *const restrict DT_ALIGNED_PIXEL pix_out = out + k;
-      const float *const restrict DT_ALIGNED_PIXEL Dmin = d->Dmin;
-      const float *const restrict DT_ALIGNED_PIXEL wb_high = d->wb_high;
-      const float *const restrict DT_ALIGNED_PIXEL offset = d->offset;
+      const float *const restrict pix_in = in + k;
+      float *const restrict pix_out = out + k;
+      const float *const restrict Dmin = __builtin_assume_aligned(d->Dmin, 16);
+      const float *const restrict wb_high = __builtin_assume_aligned(d->wb_high, 16);
+      const float *const restrict offset = __builtin_assume_aligned(d->offset, 16);
 
       // Convert transmission to density using Dmin as a fulcrum
       const float density = - log10f(Dmin[c] / fmaxf(pix_in[c], THRESHOLD)); // threshold to -32 EV
@@ -494,7 +532,7 @@ static void Dmin_picker_update(dt_iop_module_t *self)
 
 static void Dmin_picker_callback(GtkColorButton *widget, dt_iop_module_t *self)
 {
-  if(self->dt->gui->reset) return;
+  if(darktable.gui->reset) return;
   dt_iop_negadoctor_gui_data_t *g = (dt_iop_negadoctor_gui_data_t *)self->gui_data;
   dt_iop_negadoctor_params_t *p = (dt_iop_negadoctor_params_t *)self->params;
 
@@ -506,12 +544,11 @@ static void Dmin_picker_callback(GtkColorButton *widget, dt_iop_module_t *self)
   p->Dmin[1] = c.green;
   p->Dmin[2] = c.blue;
 
-  const int reset = darktable.gui->reset;
-  darktable.gui->reset = 1;
+  ++darktable.gui->reset;
   dt_bauhaus_slider_set(g->Dmin_R, p->Dmin[0] * 100.0f); // warning: GUI is in %
   dt_bauhaus_slider_set(g->Dmin_G, p->Dmin[1] * 100.0f); // warning: GUI is in %
   dt_bauhaus_slider_set(g->Dmin_B, p->Dmin[2] * 100.0f); // warning: GUI is in %
-  darktable.gui->reset = reset;
+  --darktable.gui->reset;
 
   Dmin_picker_update(self);
   dt_iop_color_picker_reset(self, TRUE);
@@ -540,7 +577,7 @@ static void WB_low_picker_update(dt_iop_module_t *self)
 
 static void WB_low_picker_callback(GtkColorButton *widget, dt_iop_module_t *self)
 {
-  if(self->dt->gui->reset) return;
+  if(darktable.gui->reset) return;
   dt_iop_negadoctor_gui_data_t *g = (dt_iop_negadoctor_gui_data_t *)self->gui_data;
   dt_iop_negadoctor_params_t *p = (dt_iop_negadoctor_params_t *)self->params;
 
@@ -557,12 +594,11 @@ static void WB_low_picker_callback(GtkColorButton *widget, dt_iop_module_t *self
   float RGB_min = v_minf(RGB);
   for(size_t k = 0; k < 3; k++) p->wb_low[k] = RGB[k] / RGB_min;
 
-  const int reset = darktable.gui->reset;
-  darktable.gui->reset = 1;
+  ++darktable.gui->reset;
   dt_bauhaus_slider_set(g->wb_low_R, p->wb_low[0]);
   dt_bauhaus_slider_set(g->wb_low_G, p->wb_low[1]);
   dt_bauhaus_slider_set(g->wb_low_B, p->wb_low[2]);
-  darktable.gui->reset = reset;
+  --darktable.gui->reset;
 
   WB_low_picker_update(self);
   dt_iop_color_picker_reset(self, TRUE);
@@ -592,7 +628,7 @@ static void WB_high_picker_update(dt_iop_module_t *self)
 
 static void WB_high_picker_callback(GtkColorButton *widget, dt_iop_module_t *self)
 {
-  if(self->dt->gui->reset) return;
+  if(darktable.gui->reset) return;
   dt_iop_negadoctor_gui_data_t *g = (dt_iop_negadoctor_gui_data_t *)self->gui_data;
   dt_iop_negadoctor_params_t *p = (dt_iop_negadoctor_params_t *)self->params;
 
@@ -609,12 +645,11 @@ static void WB_high_picker_callback(GtkColorButton *widget, dt_iop_module_t *sel
   float RGB_min = v_minf(RGB);
   for(size_t k = 0; k < 3; k++) p->wb_high[k] = RGB[k] / RGB_min;
 
-  const int reset = darktable.gui->reset;
-  darktable.gui->reset = 1;
+  ++darktable.gui->reset;
   dt_bauhaus_slider_set(g->wb_high_R, p->wb_high[0]);
   dt_bauhaus_slider_set(g->wb_high_G, p->wb_high[1]);
   dt_bauhaus_slider_set(g->wb_high_B, p->wb_high[2]);
-  darktable.gui->reset = reset;
+  --darktable.gui->reset;
 
   WB_high_picker_update(self);
   dt_iop_color_picker_reset(self, TRUE);
@@ -627,18 +662,17 @@ static void WB_high_picker_callback(GtkColorButton *widget, dt_iop_module_t *sel
 // measure Dmin from the film edges first
 static void apply_auto_Dmin(dt_iop_module_t *self)
 {
-  if(self->dt->gui->reset) return;
+  if(darktable.gui->reset) return;
   dt_iop_negadoctor_gui_data_t *g = (dt_iop_negadoctor_gui_data_t *)self->gui_data;
   dt_iop_negadoctor_params_t *p = (dt_iop_negadoctor_params_t *)self->params;
 
   for(int k = 0; k < 4; k++) p->Dmin[k] = self->picked_color[k];
 
-  const int reset = darktable.gui->reset;
-  darktable.gui->reset = 1;
+  ++darktable.gui->reset;
   dt_bauhaus_slider_set(g->Dmin_R, p->Dmin[0] * 100.0f); // warning: GUI is in %
   dt_bauhaus_slider_set(g->Dmin_G, p->Dmin[1] * 100.0f); // warning: GUI is in %
   dt_bauhaus_slider_set(g->Dmin_B, p->Dmin[2] * 100.0f); // warning: GUI is in %
-  darktable.gui->reset = reset;
+  --darktable.gui->reset;
 
   Dmin_picker_update(self);
   dt_control_queue_redraw_widget(self->widget);
@@ -648,7 +682,7 @@ static void apply_auto_Dmin(dt_iop_module_t *self)
 // from Dmin, find out the range of density values of the film and compute Dmax
 static void apply_auto_Dmax(dt_iop_module_t *self)
 {
-  if(self->dt->gui->reset) return;
+  if(darktable.gui->reset) return;
   dt_iop_negadoctor_gui_data_t *g = (dt_iop_negadoctor_gui_data_t *)self->gui_data;
   dt_iop_negadoctor_params_t *p = (dt_iop_negadoctor_params_t *)self->params;
 
@@ -661,10 +695,9 @@ static void apply_auto_Dmax(dt_iop_module_t *self)
   // Take the max(RGB) for safety. Big values unclip whites
   p->D_max = v_maxf(RGB);
 
-  const int reset = darktable.gui->reset;
-  darktable.gui->reset = 1;
+  ++darktable.gui->reset;
   dt_bauhaus_slider_set(g->D_max, p->D_max);
-  darktable.gui->reset = reset;
+  --darktable.gui->reset;
 
   dt_control_queue_redraw_widget(self->widget);
   dt_dev_add_history_item(darktable.develop, self, TRUE);
@@ -673,7 +706,7 @@ static void apply_auto_Dmax(dt_iop_module_t *self)
 // from Dmax, compute the offset so the range of density is rescaled between [0; 1]
 static void apply_auto_offset(dt_iop_module_t *self)
 {
-  if(self->dt->gui->reset) return;
+  if(darktable.gui->reset) return;
   dt_iop_negadoctor_gui_data_t *g = (dt_iop_negadoctor_gui_data_t *)self->gui_data;
   dt_iop_negadoctor_params_t *p = (dt_iop_negadoctor_params_t *)self->params;
 
@@ -684,10 +717,9 @@ static void apply_auto_offset(dt_iop_module_t *self)
   // Take the min(RGB) for safety. Negative values unclip blacks
   p->offset = v_minf(RGB);
 
-  const int reset = darktable.gui->reset;
-  darktable.gui->reset = 1;
+  ++darktable.gui->reset;
   dt_bauhaus_slider_set(g->offset, p->offset); // warning: GUI is in %
-  darktable.gui->reset = reset;
+  --darktable.gui->reset;
 
   dt_control_queue_redraw_widget(self->widget);
   dt_dev_add_history_item(darktable.develop, self, TRUE);
@@ -697,7 +729,7 @@ static void apply_auto_offset(dt_iop_module_t *self)
 // such that offset × wb[c] make black monochrome
 static void apply_auto_WB_low(dt_iop_module_t *self)
 {
-  if(self->dt->gui->reset) return;
+  if(darktable.gui->reset) return;
   dt_iop_negadoctor_gui_data_t *g = (dt_iop_negadoctor_gui_data_t *)self->gui_data;
   dt_iop_negadoctor_params_t *p = (dt_iop_negadoctor_params_t *)self->params;
 
@@ -708,12 +740,11 @@ static void apply_auto_WB_low(dt_iop_module_t *self)
   const float RGB_v_min = v_minf(RGB_min); // warning: can be negative
   for(int c = 0; c < 3; c++) p->wb_low[c] =  RGB_v_min / RGB_min[c];
 
-  const int reset = darktable.gui->reset;
-  darktable.gui->reset = 1;
+  ++darktable.gui->reset;
   dt_bauhaus_slider_set(g->wb_low_R, p->wb_low[0]);
   dt_bauhaus_slider_set(g->wb_low_G, p->wb_low[1]);
   dt_bauhaus_slider_set(g->wb_low_B, p->wb_low[2]);
-  darktable.gui->reset = reset;
+  --darktable.gui->reset;
 
   WB_low_picker_update(self);
   dt_control_queue_redraw_widget(self->widget);
@@ -724,7 +755,7 @@ static void apply_auto_WB_low(dt_iop_module_t *self)
 // such that WB[c] / Dmax make white monochrome
 static void apply_auto_WB_high(dt_iop_module_t *self)
 {
-  if(self->dt->gui->reset) return;
+  if(darktable.gui->reset) return;
   dt_iop_negadoctor_gui_data_t *g = (dt_iop_negadoctor_gui_data_t *)self->gui_data;
   dt_iop_negadoctor_params_t *p = (dt_iop_negadoctor_params_t *)self->params;
 
@@ -735,12 +766,11 @@ static void apply_auto_WB_high(dt_iop_module_t *self)
   const float RGB_v_min = v_minf(RGB_min); // warning : must be positive
   for(int c = 0; c < 3; c++) p->wb_high[c] = RGB_min[c] / RGB_v_min;
 
-  const int reset = darktable.gui->reset;
-  darktable.gui->reset = 1;
+  ++darktable.gui->reset;
   dt_bauhaus_slider_set(g->wb_high_R, p->wb_high[0]);
   dt_bauhaus_slider_set(g->wb_high_G, p->wb_high[1]);
   dt_bauhaus_slider_set(g->wb_high_B, p->wb_high[2]);
-  darktable.gui->reset = reset;
+  --darktable.gui->reset;
 
   WB_high_picker_update(self);
   dt_control_queue_redraw_widget(self->widget);
@@ -751,7 +781,7 @@ static void apply_auto_WB_high(dt_iop_module_t *self)
 // such that the printed values range from 0 to + infinity
 static void apply_auto_black(dt_iop_module_t *self)
 {
-  if(self->dt->gui->reset) return;
+  if(darktable.gui->reset) return;
   dt_iop_negadoctor_gui_data_t *g = (dt_iop_negadoctor_gui_data_t *)self->gui_data;
   dt_iop_negadoctor_params_t *p = (dt_iop_negadoctor_params_t *)self->params;
 
@@ -765,10 +795,9 @@ static void apply_auto_black(dt_iop_module_t *self)
   }
   p->black = v_maxf(RGB);
 
-  const int reset = darktable.gui->reset;
-  darktable.gui->reset = 1;
+  ++darktable.gui->reset;
   dt_bauhaus_slider_set(g->black, p->black * 100.0f);
-  darktable.gui->reset = reset;
+  --darktable.gui->reset;
 
   dt_control_queue_redraw_widget(self->widget);
   dt_dev_add_history_item(darktable.develop, self, TRUE);
@@ -778,7 +807,7 @@ static void apply_auto_black(dt_iop_module_t *self)
 // such that the printed values range from 0 to 1
 static void apply_auto_exposure(dt_iop_module_t *self)
 {
-  if(self->dt->gui->reset) return;
+  if(darktable.gui->reset) return;
   dt_iop_negadoctor_gui_data_t *g = (dt_iop_negadoctor_gui_data_t *)self->gui_data;
   dt_iop_negadoctor_params_t *p = (dt_iop_negadoctor_params_t *)self->params;
 
@@ -792,84 +821,36 @@ static void apply_auto_exposure(dt_iop_module_t *self)
   }
   p->exposure = v_minf(RGB);
 
-  const int reset = darktable.gui->reset;
-  darktable.gui->reset = 1;
+  ++darktable.gui->reset;
   dt_bauhaus_slider_set(g->exposure, log2f(p->exposure));
-  darktable.gui->reset = reset;
+  --darktable.gui->reset;
 
   dt_control_queue_redraw_widget(self->widget);
   dt_dev_add_history_item(darktable.develop, self, TRUE);
 }
 
 
-static int _iop_color_picker_get_set(dt_iop_module_t *self, GtkWidget *button)
+void color_picker_apply(dt_iop_module_t *self, GtkWidget *picker, dt_dev_pixelpipe_iop_t *piece)
 {
-  dt_iop_negadoctor_gui_data_t *g =  (dt_iop_negadoctor_gui_data_t *)self->gui_data;
-
-  const int current_picker = g->color_picker.current_picker;
-
-  g->color_picker.current_picker = DT_NEGADOCTOR_NONE;
-
-  if(button == g->Dmin_sampler)
-    g->color_picker.current_picker = DT_NEGADOCTOR_DMIN;
-  else if(button == g->WB_high_sampler)
-    g->color_picker.current_picker = DT_NEGADOCTOR_WB_high;
-  else if(button == g->offset)
-    g->color_picker.current_picker = DT_NEGADOCTOR_OFFSET;
-  else if(button == g->D_max)
-    g->color_picker.current_picker = DT_NEGADOCTOR_DMAX;
-  else if(button == g->WB_low_sampler)
-    g->color_picker.current_picker = DT_NEGADOCTOR_WB_low;
-  else if(button == g->exposure)
-    g->color_picker.current_picker = DT_NEGADOCTOR_EXPOSURE;
-  else if(button == g->black)
-    g->color_picker.current_picker = DT_NEGADOCTOR_BLACK;
-
-  if (current_picker == g->color_picker.current_picker)
-    return DT_COLOR_PICKER_ALREADY_SELECTED;
-  else
-    return g->color_picker.current_picker;
-}
-
-static void _iop_color_picker_apply(struct dt_iop_module_t *self, dt_dev_pixelpipe_iop_t *piece)
-{
-  if(self->dt->gui->reset) return;
+  if(darktable.gui->reset) return;
   dt_iop_negadoctor_gui_data_t *g = (dt_iop_negadoctor_gui_data_t *)self->gui_data;
 
-  switch(g->color_picker.current_picker)
-  {
-    case DT_NEGADOCTOR_DMIN:
-      apply_auto_Dmin(self);
-      break;
-    case DT_NEGADOCTOR_WB_high:
-      apply_auto_WB_high(self);
-      break;
-    case DT_NEGADOCTOR_OFFSET:
-      apply_auto_offset(self);
-      break;
-    case DT_NEGADOCTOR_DMAX:
-      apply_auto_Dmax(self);
-      break;
-    case DT_NEGADOCTOR_WB_low:
-      apply_auto_WB_low(self);
-      break;
-    case DT_NEGADOCTOR_EXPOSURE:
-      apply_auto_exposure(self);
-      break;
-    case DT_NEGADOCTOR_BLACK:
-      apply_auto_black(self);
-      break;
-    default:
-      break;
-  }
-}
-
-static void _iop_color_picker_update(dt_iop_module_t *self)
-{
-  dt_iop_negadoctor_gui_data_t *const g =  (dt_iop_negadoctor_gui_data_t *)self->gui_data;
-  const int which_colorpicker = g->color_picker.current_picker;
-  dt_bauhaus_widget_set_quad_active(g->offset, which_colorpicker == DT_NEGADOCTOR_OFFSET);
-  dt_bauhaus_widget_set_quad_active(g->D_max, which_colorpicker == DT_NEGADOCTOR_DMAX);
+  if     (picker == g->Dmin_sampler)
+    apply_auto_Dmin(self);
+  else if(picker == g->WB_high_sampler)
+    apply_auto_WB_high(self);
+  else if(picker == g->offset)
+    apply_auto_offset(self);
+  else if(picker == g->D_max)
+    apply_auto_Dmax(self);
+  else if(picker == g->WB_low_sampler)
+    apply_auto_WB_low(self);
+  else if(picker == g->exposure)
+    apply_auto_exposure(self);
+  else if(picker == g->black)
+    apply_auto_black(self);
+  else
+    fprintf(stderr, "[negadoctor] unknown color picker\n");
 }
 
 
@@ -1071,16 +1052,16 @@ void gui_init(dt_iop_module_t *self)
   dt_bauhaus_combobox_add(g->film_stock, _("color"));
   gtk_box_pack_start(GTK_BOX(self->widget), GTK_WIDGET(g->film_stock), TRUE, TRUE, 0);
   g_signal_connect(G_OBJECT(g->film_stock), "value-changed", G_CALLBACK(film_stock_callback), self);
-  gtk_widget_set_tooltip_text(g->film_stock, _("toogle on or off the color controls"));
+  gtk_widget_set_tooltip_text(g->film_stock, _("toggle on or off the color controls"));
 
   g->notebook = GTK_NOTEBOOK(gtk_notebook_new());
   GtkWidget *page1 = GTK_WIDGET(gtk_box_new(GTK_ORIENTATION_VERTICAL, 0));
   GtkWidget *page2 = GTK_WIDGET(gtk_box_new(GTK_ORIENTATION_VERTICAL, 0));
   GtkWidget *page3 = GTK_WIDGET(gtk_box_new(GTK_ORIENTATION_VERTICAL, 0));
 
-  gtk_notebook_append_page(GTK_NOTEBOOK(g->notebook), page1, gtk_label_new(_("film properties")));
-  gtk_notebook_append_page(GTK_NOTEBOOK(g->notebook), page2, gtk_label_new(_("corrections")));
-  gtk_notebook_append_page(GTK_NOTEBOOK(g->notebook), page3, gtk_label_new(_("print properties")));
+  gtk_notebook_append_page(g->notebook, page1, gtk_label_new(_("film properties")));
+  gtk_notebook_append_page(g->notebook, page2, gtk_label_new(_("corrections")));
+  gtk_notebook_append_page(g->notebook, page3, gtk_label_new(_("print properties")));
 
   gtk_widget_show_all(GTK_WIDGET(gtk_notebook_get_nth_page(g->notebook, 0)));
   gtk_box_pack_start(GTK_BOX(self->widget), GTK_WIDGET(g->notebook), FALSE, FALSE, 0);
@@ -1101,10 +1082,8 @@ void gui_init(dt_iop_module_t *self)
   gtk_box_pack_start(GTK_BOX(row1), GTK_WIDGET(g->Dmin_picker), TRUE, TRUE, 0);
   g_signal_connect(G_OBJECT(g->Dmin_picker), "color-set", G_CALLBACK(Dmin_picker_callback), self);
 
-  g->Dmin_sampler = dtgtk_button_new(dtgtk_cairo_paint_colorpicker, CPF_STYLE_FLAT, NULL);
+  g->Dmin_sampler = dt_color_picker_new(self, DT_COLOR_PICKER_AREA, row1);
   gtk_widget_set_tooltip_text(g->Dmin_sampler , _("pick color of film material from image"));
-  gtk_box_pack_start(GTK_BOX(row1), GTK_WIDGET(g->Dmin_sampler), FALSE, FALSE, 0);
-  g_signal_connect(G_OBJECT(g->Dmin_sampler ), "clicked", G_CALLBACK(dt_iop_color_picker_callback), &g->color_picker);
 
   gtk_box_pack_start(GTK_BOX(page1), GTK_WIDGET(row1), FALSE, FALSE, 0);
 
@@ -1145,9 +1124,7 @@ void gui_init(dt_iop_module_t *self)
   g->D_max = dt_bauhaus_slider_new_with_range(self, 0.1, 6.0, 0.01, p->D_max, 2);
   dt_bauhaus_slider_set_format(g->D_max, "%.2f dB");
   dt_bauhaus_widget_set_label(g->D_max, NULL, _("D max"));
-  dt_bauhaus_widget_set_quad_paint(g->D_max, dtgtk_cairo_paint_colorpicker, CPF_STYLE_FLAT | CPF_DO_NOT_USE_BORDER, NULL);
-  dt_bauhaus_widget_set_quad_toggle(g->D_max, TRUE);
-  g_signal_connect(G_OBJECT(g->D_max), "quad-pressed", G_CALLBACK(dt_iop_color_picker_callback), &g->color_picker);
+  dt_color_picker_new(self, DT_COLOR_PICKER_AREA, g->D_max);
   gtk_widget_set_tooltip_text(g->D_max, _("maximum density of the film, corresponding to white after inversion.\n"
                                           "this value depends on the film specifications, the developing process,\n"
                                           "the dynamic range of the scene and the scanner exposure settings."));
@@ -1159,9 +1136,7 @@ void gui_init(dt_iop_module_t *self)
   g->offset = dt_bauhaus_slider_new_with_range(self, -1.0, 1.0, 0.01, p->offset, 2);
   dt_bauhaus_slider_set_format(g->offset, "%+.2f dB");
   dt_bauhaus_widget_set_label(g->offset, NULL, _("scan exposure bias"));
-  dt_bauhaus_widget_set_quad_paint(g->offset, dtgtk_cairo_paint_colorpicker, CPF_STYLE_FLAT | CPF_DO_NOT_USE_BORDER, NULL);
-  dt_bauhaus_widget_set_quad_toggle(g->offset, TRUE);
-  g_signal_connect(G_OBJECT(g->offset), "quad-pressed", G_CALLBACK(dt_iop_color_picker_callback), &g->color_picker);
+  dt_color_picker_new(self, DT_COLOR_PICKER_AREA, g->offset);
   gtk_widget_set_tooltip_text(g->offset, _("correct the exposure of the scanner, for all RGB channels,\n"
                                            "before the inversion, so blacks are neither clipped or too pale."));
   gtk_box_pack_start(GTK_BOX(page1), GTK_WIDGET(g->offset), FALSE, FALSE, 0);
@@ -1181,10 +1156,8 @@ void gui_init(dt_iop_module_t *self)
   gtk_box_pack_start(GTK_BOX(row3), GTK_WIDGET(g->WB_low_picker), TRUE, TRUE, 0);
   g_signal_connect(G_OBJECT(g->WB_low_picker), "color-set", G_CALLBACK(WB_low_picker_callback), self);
 
-  g->WB_low_sampler = dtgtk_button_new(dtgtk_cairo_paint_colorpicker, CPF_STYLE_FLAT, NULL);
-  gtk_widget_set_tooltip_text(g->WB_low_sampler , _("pick shadows color from image"));
-  gtk_box_pack_start(GTK_BOX(row3), GTK_WIDGET(g->WB_low_sampler), FALSE, FALSE, 0);
-  g_signal_connect(G_OBJECT(g->WB_low_sampler), "clicked", G_CALLBACK(dt_iop_color_picker_callback), &g->color_picker);
+  g->WB_low_sampler = dt_color_picker_new(self, DT_COLOR_PICKER_AREA, row3);
+  gtk_widget_set_tooltip_text(g->WB_low_sampler, _("pick shadows color from image"));
 
   gtk_box_pack_start(GTK_BOX(page2), GTK_WIDGET(row3), FALSE, FALSE, 0);
 
@@ -1229,10 +1202,8 @@ void gui_init(dt_iop_module_t *self)
   gtk_box_pack_start(GTK_BOX(row2), GTK_WIDGET(g->WB_high_picker), TRUE, TRUE, 0);
   g_signal_connect(G_OBJECT(g->WB_high_picker), "color-set", G_CALLBACK(WB_high_picker_callback), self);
 
-  g->WB_high_sampler = dtgtk_button_new(dtgtk_cairo_paint_colorpicker, CPF_STYLE_FLAT, NULL);
+  g->WB_high_sampler = dt_color_picker_new(self, DT_COLOR_PICKER_AREA, row2);
   gtk_widget_set_tooltip_text(g->WB_high_sampler , _("pick illuminant color from image"));
-  gtk_box_pack_start(GTK_BOX(row2), GTK_WIDGET(g->WB_high_sampler), FALSE, FALSE, 0);
-  g_signal_connect(G_OBJECT(g->WB_high_sampler), "clicked", G_CALLBACK(dt_iop_color_picker_callback), &g->color_picker);
 
   gtk_box_pack_start(GTK_BOX(page2), GTK_WIDGET(row2), FALSE, FALSE, 0);
 
@@ -1269,9 +1240,7 @@ void gui_init(dt_iop_module_t *self)
   g->black = dt_bauhaus_slider_new_with_range(self, -50., 50., 0.05, p->black * 100, 2);
   dt_bauhaus_slider_set_format(g->black, "%+.2f %%");
   dt_bauhaus_widget_set_label(g->black, NULL, _("paper black (density correction)"));
-  dt_bauhaus_widget_set_quad_paint(g->black, dtgtk_cairo_paint_colorpicker, CPF_STYLE_FLAT | CPF_DO_NOT_USE_BORDER, NULL);
-  dt_bauhaus_widget_set_quad_toggle(g->black, TRUE);
-  g_signal_connect(G_OBJECT(g->black), "quad-pressed", G_CALLBACK(dt_iop_color_picker_callback), &g->color_picker);
+  dt_color_picker_new(self, DT_COLOR_PICKER_AREA, g->black);
   gtk_widget_set_tooltip_text(g->black, _("correct the density of black after the inversion,\n"
                                           "to adjust the global contrast while avoiding clipping shadows."));
   gtk_box_pack_start(GTK_BOX(page3), GTK_WIDGET(g->black), FALSE, FALSE, 0);
@@ -1299,22 +1268,13 @@ void gui_init(dt_iop_module_t *self)
   g->exposure = dt_bauhaus_slider_new_with_range(self, -1., +1., 0.01, log2f(p->exposure), 2);
   dt_bauhaus_slider_set_format(g->exposure, "%+.2f EV");
   dt_bauhaus_widget_set_label(g->exposure, NULL, _("print exposure adjustment"));
-  dt_bauhaus_widget_set_quad_paint(g->exposure, dtgtk_cairo_paint_colorpicker, CPF_STYLE_FLAT | CPF_DO_NOT_USE_BORDER, NULL);
-  dt_bauhaus_widget_set_quad_toggle(g->exposure, TRUE);
-  g_signal_connect(G_OBJECT(g->exposure), "quad-pressed", G_CALLBACK(dt_iop_color_picker_callback), &g->color_picker);
+  dt_color_picker_new(self, DT_COLOR_PICKER_AREA, g->exposure);
   gtk_widget_set_tooltip_text(g->exposure, _("correct the printing exposure after inversion to adjust\n"
                                              "the global contrast and avoid clipping highlights."));
   gtk_box_pack_start(GTK_BOX(page3), GTK_WIDGET(g->exposure), FALSE, FALSE, 0);
   g_signal_connect(G_OBJECT(g->exposure), "value-changed", G_CALLBACK(exposure_callback), self);
 
   toggle_stock_controls(self);
-
-  dt_iop_init_picker(&g->color_picker,
-                      self,
-                      DT_COLOR_PICKER_AREA,
-                      _iop_color_picker_get_set,
-                      _iop_color_picker_apply,
-                      _iop_color_picker_update);
 }
 
 
@@ -1366,22 +1326,7 @@ void gui_update(dt_iop_module_t *const self)
   WB_low_picker_update(self);
 }
 
-
-void gui_cleanup(dt_iop_module_t *self)
-{
-  free(self->gui_data);
-  self->gui_data = NULL;
-}
-
-
-void gui_focus(struct dt_iop_module_t *self, gboolean in)
-{
-  if(!in) dt_iop_color_picker_reset(self, TRUE);
-}
-
-
 void gui_reset(dt_iop_module_t *self)
 {
   dt_iop_color_picker_reset(self, TRUE);
 }
-

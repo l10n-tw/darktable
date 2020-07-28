@@ -55,7 +55,7 @@ DT_MODULE_INTROSPECTION(3, dt_iop_temperature_params_t)
 #define DT_IOP_LOWEST_TINT 0.135
 #define DT_IOP_HIGHEST_TINT 2.326
 
-#define DT_IOP_NUM_OF_STD_TEMP_PRESETS 3
+#define DT_IOP_NUM_OF_STD_TEMP_PRESETS 4
 
 #define COLORED_SLIDERS 0
 
@@ -73,16 +73,16 @@ typedef struct dt_iop_temperature_gui_data_t
 {
   GtkWidget *scale_k, *scale_tint, *coeff_widgets, *scale_r, *scale_g, *scale_b, *scale_g2;
   GtkWidget *presets;
+  GtkWidget *colorpicker;
   GtkWidget *finetune;
   GtkWidget *box_enabled;
   GtkWidget *label_disabled;
   GtkWidget *stack;
-  GtkWidget *colorpicker;
   int preset_cnt;
   int preset_num[50];
   double daylight_wb[4];
+  double mod_coeff[4];
   double XYZ_to_CAM[4][3], CAM_to_XYZ[3][4];
-  dt_iop_color_picker_t color_picker;
 } dt_iop_temperature_gui_data_t;
 
 typedef struct dt_iop_temperature_data_t
@@ -210,10 +210,11 @@ void init_key_accels(dt_iop_module_so_t *self)
   dt_accel_register_slider_iop(self, FALSE, NC_("accel", "red"));
   dt_accel_register_slider_iop(self, FALSE, NC_("accel", "green"));
   dt_accel_register_slider_iop(self, FALSE, NC_("accel", "blue"));
+  dt_accel_register_combobox_iop(self, FALSE, NC_("accel", "presets"));
 
-  dt_accel_register_iop(self, TRUE, NC_("accel", "preset/camera"), 0, 0);
-  dt_accel_register_iop(self, TRUE, NC_("accel", "preset/camera neutral"), 0, 0);
-  dt_accel_register_iop(self, TRUE, NC_("accel", "preset/spot"), 0, 0);
+  dt_accel_register_iop(self, FALSE, NC_("accel", "preset/camera"), 0, 0);
+  dt_accel_register_iop(self, FALSE, NC_("accel", "preset/camera neutral"), 0, 0);
+  dt_accel_register_iop(self, FALSE, NC_("accel", "preset/spot"), 0, 0);
 }
 
 void connect_key_accels(dt_iop_module_t *self)
@@ -226,6 +227,7 @@ void connect_key_accels(dt_iop_module_t *self)
   dt_accel_connect_slider_iop(self, "green", GTK_WIDGET(g->scale_g));
   dt_accel_connect_slider_iop(self, "blue", GTK_WIDGET(g->scale_b));
   dt_accel_connect_slider_iop(self, "green2", GTK_WIDGET(g->scale_g2));
+  dt_accel_connect_combobox_iop(self, "presets", GTK_WIDGET(g->presets));
 
   GClosure *closure;
 
@@ -765,7 +767,6 @@ void gui_update(struct dt_iop_module_t *self)
   gtk_stack_set_visible_child_name(GTK_STACK(g->stack), "enabled");
 
   dt_iop_color_picker_reset(self, TRUE);
-  gtk_widget_hide(g->colorpicker);
 
   double TempK, tint;
   mul2temp(self, p->coeffs, &TempK, &tint);
@@ -778,11 +779,13 @@ void gui_update(struct dt_iop_module_t *self)
   dt_bauhaus_slider_set(g->scale_tint, tint);
 
   gui_sliders_update(self);
+  for(int k = 0; k < 4; k++) g->mod_coeff[k] = p->coeffs[k];
 
   dt_bauhaus_combobox_clear(g->presets);
   dt_bauhaus_combobox_add(g->presets, C_("white balance", "camera"));
   dt_bauhaus_combobox_add(g->presets, C_("white balance", "camera neutral"));
   dt_bauhaus_combobox_add(g->presets, C_("white balance", "spot"));
+  dt_bauhaus_combobox_add(g->presets, C_("white balance", "user modified"));
   g->preset_cnt = DT_IOP_NUM_OF_STD_TEMP_PRESETS;
   memset(g->preset_num, 0, sizeof(g->preset_num));
 
@@ -899,6 +902,8 @@ void gui_update(struct dt_iop_module_t *self)
         }
       }
     }
+    if (!found)
+      dt_bauhaus_combobox_set(g->presets, 3);
   }
 }
 
@@ -1153,15 +1158,14 @@ static void gui_update_from_coeffs(dt_iop_module_t *self)
   double TempK, tint;
   mul2temp(self, p->coeffs, &TempK, &tint);
 
-  const int reset = darktable.gui->reset;
-  darktable.gui->reset = 1;
+  ++darktable.gui->reset;
   dt_bauhaus_slider_set(g->scale_k, TempK);
   dt_bauhaus_slider_set(g->scale_tint, tint);
   dt_bauhaus_slider_set(g->scale_r, p->coeffs[0]);
   dt_bauhaus_slider_set(g->scale_g, p->coeffs[1]);
   dt_bauhaus_slider_set(g->scale_b, p->coeffs[2]);
   dt_bauhaus_slider_set(g->scale_g2, p->coeffs[3]);
-  darktable.gui->reset = reset;
+  --darktable.gui->reset;
 }
 
 static void temp_changed(dt_iop_module_t *self)
@@ -1182,62 +1186,60 @@ static void temp_changed(dt_iop_module_t *self)
   coeffs[2] /= coeffs[1];
   coeffs[3] /= coeffs[1];
   coeffs[1] = 1.0;
+  for(int c = 0; c < 4; c++) p->coeffs[c] = g->mod_coeff[c] = coeffs[c];
 
-  for(int c = 0; c < 4; c++) p->coeffs[c] = coeffs[c];
-
-  const int reset = darktable.gui->reset;
-  darktable.gui->reset = 1;
+  ++darktable.gui->reset;
   dt_bauhaus_slider_set(g->scale_r, p->coeffs[0]);
   dt_bauhaus_slider_set(g->scale_g, p->coeffs[1]);
   dt_bauhaus_slider_set(g->scale_b, p->coeffs[2]);
   dt_bauhaus_slider_set(g->scale_g2, p->coeffs[3]);
-  darktable.gui->reset = reset;
+  --darktable.gui->reset;
   dt_dev_add_history_item(darktable.develop, self, TRUE);
 }
 
 static void tint_callback(GtkWidget *slider, gpointer user_data)
 {
   dt_iop_module_t *self = (dt_iop_module_t *)user_data;
-  if(self->dt->gui->reset) return;
+  if(darktable.gui->reset) return;
   temp_changed(self);
   dt_iop_temperature_gui_data_t *g = (dt_iop_temperature_gui_data_t *)self->gui_data;
-  dt_bauhaus_combobox_set(g->presets, -1);
+  dt_bauhaus_combobox_set(g->presets, 3);
 }
 
 static void temp_callback(GtkWidget *slider, gpointer user_data)
 {
   dt_iop_module_t *self = (dt_iop_module_t *)user_data;
-  if(self->dt->gui->reset) return;
+  if(darktable.gui->reset) return;
   temp_changed(self);
   dt_iop_temperature_gui_data_t *g = (dt_iop_temperature_gui_data_t *)self->gui_data;
-  dt_bauhaus_combobox_set(g->presets, -1);
+  dt_bauhaus_combobox_set(g->presets, 3);
 }
 
 static void rgb_callback(GtkWidget *slider, gpointer user_data)
 {
   dt_iop_module_t *self = (dt_iop_module_t *)user_data;
-  if(self->dt->gui->reset) return;
+  if(darktable.gui->reset) return;
   dt_iop_temperature_gui_data_t *g = (dt_iop_temperature_gui_data_t *)self->gui_data;
   dt_iop_temperature_params_t *p = (dt_iop_temperature_params_t *)self->params;
   dt_iop_color_picker_reset(self, TRUE);
   const float value = dt_bauhaus_slider_get(slider);
   if(slider == g->scale_r)
-    p->coeffs[0] = value;
+    p->coeffs[0] = g->mod_coeff[0] = value;
   else if(slider == g->scale_g)
-    p->coeffs[1] = value;
+    p->coeffs[1] = g->mod_coeff[1] = value;
   else if(slider == g->scale_b)
-    p->coeffs[2] = value;
+    p->coeffs[2] = g->mod_coeff[2] = value;
   else if(slider == g->scale_g2)
-    p->coeffs[3] = value;
+    p->coeffs[3] = g->mod_coeff[3] = value;
 
   gui_update_from_coeffs(self);
   dt_dev_add_history_item(darktable.develop, self, TRUE);
-  dt_bauhaus_combobox_set(g->presets, -1);
+  dt_bauhaus_combobox_set(g->presets, 3);
 }
 
 static void apply_preset(dt_iop_module_t *self)
 {
-  if(self->dt->gui->reset) return;
+  if(darktable.gui->reset) return;
   dt_iop_temperature_gui_data_t *g = (dt_iop_temperature_gui_data_t *)self->gui_data;
   dt_iop_color_picker_reset(self, TRUE);
   dt_iop_temperature_params_t *p = (dt_iop_temperature_params_t *)self->params;
@@ -1258,8 +1260,12 @@ static void apply_preset(dt_iop_module_t *self)
 
       //reset previously stored color picker information
       for(int k = 0; k < 4; k++) old[k] = 0.0f;
-      gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(g->colorpicker), TRUE);
+      g_signal_emit_by_name(G_OBJECT(g->colorpicker), "quad-pressed");
+
       break;
+    case 3: // directly changing one of the coeff sliders also changes the mod_coeff so it can be read here
+      for(int k = 0; k < 4; k++) p->coeffs[k] = g->mod_coeff[k];
+      break;      
     default: // camera WB presets
     {
       gboolean found = FALSE;
@@ -1332,9 +1338,9 @@ static void finetune_changed(GtkWidget *widget, gpointer user_data)
   apply_preset((dt_iop_module_t *)user_data);
 }
 
-static void _iop_color_picker_apply(struct dt_iop_module_t *self, dt_dev_pixelpipe_iop_t *piece)
+void color_picker_apply(dt_iop_module_t *self, GtkWidget *picker, dt_dev_pixelpipe_iop_t *piece)
 {
-  if(self->dt->gui->reset) return;
+  if(darktable.gui->reset) return;
 
   // capture gui color picked event.
   if(self->picked_color_max[0] < self->picked_color_min[0]) return;
@@ -1395,7 +1401,6 @@ void gui_init(struct dt_iop_module_t *self)
   dt_iop_temperature_params_t *p = (dt_iop_temperature_params_t *)self->default_params;
 
   self->widget = gtk_box_new(GTK_ORIENTATION_VERTICAL, 0);
-  dt_gui_add_help_link(self->widget, dt_get_help_url(self->op));
 
   g->stack = gtk_stack_new();
   gtk_stack_set_homogeneous(GTK_STACK(g->stack), FALSE);
@@ -1459,6 +1464,9 @@ void gui_init(struct dt_iop_module_t *self)
   dt_bauhaus_widget_set_label(g->presets, NULL, _("preset"));
   gtk_box_pack_start(GTK_BOX(g->box_enabled), g->presets, TRUE, TRUE, 0);
   gtk_widget_set_tooltip_text(g->presets, _("choose white balance preset from camera"));
+  // create hidden color picker to be able to send its signal when spot selected
+  g->colorpicker = dt_color_picker_new(self, DT_COLOR_PICKER_AREA, dt_bauhaus_combobox_new(self));
+  gtk_stack_add_named(GTK_STACK(g->stack), g->colorpicker, "hidden");
 
   g->finetune = dt_bauhaus_slider_new_with_range(self, -9.0, 9.0, 1.0, 0.0, 0);
   dt_bauhaus_widget_set_label(g->finetune, NULL, _("finetune"));
@@ -1478,19 +1486,7 @@ void gui_init(struct dt_iop_module_t *self)
   gtk_stack_add_named(GTK_STACK(g->stack), g->label_disabled, "disabled");
 
   gtk_stack_set_visible_child_name(GTK_STACK(g->stack), self->hide_enable_button ? "disabled" : "enabled");
-
-  g->colorpicker = dtgtk_togglebutton_new(dtgtk_cairo_paint_colorpicker, CPF_STYLE_FLAT | CPF_DO_NOT_USE_BORDER, NULL);
-  gtk_widget_set_size_request(GTK_WIDGET(g->colorpicker), DT_PIXEL_APPLY_DPI(14), DT_PIXEL_APPLY_DPI(14));
-  gtk_box_pack_start(GTK_BOX(g->box_enabled), GTK_WIDGET(g->colorpicker), FALSE, FALSE, 0);
-  g_signal_connect(G_OBJECT(g->colorpicker), "toggled", G_CALLBACK(dt_iop_color_picker_callback), &g->color_picker);
-  gtk_widget_show_all(g->colorpicker);
-
-  dt_iop_init_single_picker(&g->color_picker,
-                     self,
-                     GTK_WIDGET(g->colorpicker),
-                     DT_COLOR_PICKER_AREA,
-                     _iop_color_picker_apply);
-
+  
   self->gui_update(self);
 
   g_signal_connect(G_OBJECT(g->scale_tint), "value-changed", G_CALLBACK(tint_callback), self);
@@ -1507,12 +1503,6 @@ void gui_reset(struct dt_iop_module_t *self)
 {
   dt_iop_color_picker_reset(self, TRUE);
   gui_sliders_update(self);
-}
-
-void gui_cleanup(struct dt_iop_module_t *self)
-{
-  free(self->gui_data);
-  self->gui_data = NULL;
 }
 
 // modelines: These editor modelines have been set for all relevant files by tools/update_modelines.sh

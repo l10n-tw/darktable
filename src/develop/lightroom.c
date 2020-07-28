@@ -848,6 +848,7 @@ static void _lrop(const dt_develop_t *dev, const xmlDocPtr doc, const int imgid,
   {
     xmlNodePtr tagNode = node;
 
+    gboolean tag_change = FALSE;
     while(tagNode)
     {
       if(!xmlStrcmp(tagNode->name, (const xmlChar *)"li"))
@@ -856,12 +857,13 @@ static void _lrop(const dt_develop_t *dev, const xmlDocPtr doc, const int imgid,
         guint tagid = 0;
         if(!dt_tag_exists((char *)cvalue, &tagid)) dt_tag_new((char *)cvalue, &tagid);
 
-        dt_tag_attach_from_gui(tagid, imgid, FALSE, FALSE);
+        if(dt_tag_attach(tagid, imgid, FALSE, FALSE)) tag_change = TRUE;
         data->has_tags = TRUE;
         xmlFree(cvalue);
       }
       tagNode = tagNode->next;
     }
+    if(tag_change) dt_control_signal_raise(darktable.signals, DT_SIGNAL_TAG_CHANGED);
   }
   else if(dev != NULL && !xmlStrcmp(name, (const xmlChar *)"RetouchInfo"))
   {
@@ -927,7 +929,7 @@ static void _lrop(const dt_develop_t *dev, const xmlDocPtr doc, const int imgid,
       if(!xmlStrncmp(ttlNode->name, (const xmlChar *)"li", 2))
       {
         xmlChar *cvalue = xmlNodeListGetString(doc, ttlNode->xmlChildrenNode, 1);
-        dt_metadata_set(imgid, "Xmp.dc.title", (char *)cvalue, FALSE, FALSE);
+        dt_metadata_set_import(imgid, "Xmp.dc.title", (char *)cvalue);
         xmlFree(cvalue);
       }
       ttlNode = ttlNode->next;
@@ -941,7 +943,7 @@ static void _lrop(const dt_develop_t *dev, const xmlDocPtr doc, const int imgid,
       if(!xmlStrncmp(desNode->name, (const xmlChar *)"li", 2))
       {
         xmlChar *cvalue = xmlNodeListGetString(doc, desNode->xmlChildrenNode, 1);
-        dt_metadata_set(imgid, "Xmp.dc.description", (char *)cvalue, FALSE, FALSE);
+        dt_metadata_set_import(imgid, "Xmp.dc.description", (char *)cvalue);
         xmlFree(cvalue);
       }
       desNode = desNode->next;
@@ -955,7 +957,7 @@ static void _lrop(const dt_develop_t *dev, const xmlDocPtr doc, const int imgid,
       if(!xmlStrncmp(creNode->name, (const xmlChar *)"li", 2))
       {
         xmlChar *cvalue = xmlNodeListGetString(doc, creNode->xmlChildrenNode, 1);
-        dt_metadata_set(imgid, "Xmp.dc.creator", (char *)cvalue, FALSE, FALSE);
+        dt_metadata_set_import(imgid, "Xmp.dc.creator", (char *)cvalue);
         xmlFree(cvalue);
       }
       creNode = creNode->next;
@@ -969,7 +971,7 @@ static void _lrop(const dt_develop_t *dev, const xmlDocPtr doc, const int imgid,
       if(!xmlStrncmp(rigNode->name, (const xmlChar *)"li", 2))
       {
         xmlChar *cvalue = xmlNodeListGetString(doc, rigNode->xmlChildrenNode, 1);
-        dt_metadata_set(imgid, "Xmp.dc.rights", (char *)cvalue, FALSE, FALSE);
+        dt_metadata_set_import(imgid, "Xmp.dc.rights", (char *)cvalue);
         xmlFree(cvalue);
       }
       rigNode = rigNode->next;
@@ -1511,7 +1513,7 @@ void dt_lightroom_import(int imgid, dt_develop_t *dev, gboolean iauto)
 
   if(dev == NULL && data.has_rating)
   {
-    dt_ratings_apply(imgid, data.rating, FALSE, FALSE, FALSE);
+    dt_ratings_apply_on_image(imgid, data.rating, FALSE, FALSE, FALSE);
 
     if(imported[0]) g_strlcat(imported, ", ", sizeof(imported));
     g_strlcat(imported, _("rating"), sizeof(imported));

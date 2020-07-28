@@ -8,9 +8,9 @@ github, but only our tar.xz. the checksums are:
 ```
 $ sha256sum darktable-3.2.0.tar.xz
 ??? darktable-3.2.0.tar.xz
-$ sha256sum darktable-3.0.0.dmg
+$ sha256sum darktable-3.2.0.dmg
 ??? darktable-3.2.0.dmg
-$ sha256sum darktable-3.0.0.exe
+$ sha256sum darktable-3.2.0.exe
 ??? darktable-3.2.0.exe
 ```
 
@@ -21,89 +21,131 @@ making a backup is strongly advised.
 
 #### Important note: to make sure that darktable can keep on supporting the raw file format for your camera, *please* read [this post](https://discuss.pixls.us/t/raw-samples-wanted/5420?u=lebedevri) on how/what raw samples you can contribute to ensure that we have the *full* raw sample set for your camera under CC0 license!
 
-- Almost x thousand commits to darktable+rawspeed since 3.0
-- xxx pull requests handled
-- xx issues closed
+- Almost 2450 commits to darktable+rawspeed since 3.0
+- 790 pull requests handled
+- 92 issues closed
 - Updated user manual is coming soon™
 
 ## The Big Ones
 
-- A new color assessment mode is introduced into the darkroom. This
-  mode is designed to ensure proper color perception based on
-  ICC recommended (ISO 12646:2008) colour proofing conditions.
+- A full rewrite of the lighttable has been undertaken. This gives again a
+  big performance improvement and will allow smooth interaction at any
+  screen resolution. At the same time the filmstrip has been reworked.
 
-- It is now possible to resize the left and right panels directly with
-  the mouse. The positions of each one is remembered for each views'
-  layout.
+  It is important to note that this speed improvement is really
+  noticeable, particularly in the zoomable lighttable view.
 
-- Add a focus peaking mode in the lighttable and darkroom. The default
-  key to toggle this mode is <kbd>Ctrl+Shift+F</kbd>
+  The culling view has also been rewritten from scratch.
 
-- The wavelet denoise profile has a new Y0U0V0 mode. This new mode
-  makes it possible to denoise the chroma and luma noise in a single
-  instance.
+  This new lighttable version should be prepared for 8K screen resolution.
+
+  Many types of overlay are now possible on lighttable thumbs. Different overlay
+  information can be selected depending on the thumb size on the
+  lighttable. The different sizes can be set in the preferences, so we
+  can have no overlay at all for small thumbs and full overlay when
+  large thumbs are displayed. This is fully configurable.
+
+  Likewise, the tooltip information when hovering the thumbs can be
+  activated/deactivated based on the thumbs size.
+
+- The lighttable modules have been made more visually living by
+  highlighting the buttons only when the context makes the action
+  possible. This give a better user experience.
+
+- A complete overhaul of the CSS has also been done. This gives
+  darktable a very professional look at this time. This also continues
+  the goal to make every single aspect of the UI themable using CSS.
+
+- Some other parts have been reworked such as the Color Picker and
+  Location modules to better fit into the new UI, and most of the icons
+  have been altered so as to be more visually balanced.
+
+- The preference dialog has been fully reviewed and reorganized to
+  propose a better look and at the same time require less
+  scrolling. It is also possible to add some CSS rules directly into
+  the preference dialog to tweak darktable's look as well as
+  to directly control the font size and DPI values from the general
+  preference tab.
+
+  A search field has also been added to the shortcuts tab to help you find
+  the keyboard shortcut you want to customize.
+
+- The new module negadoctor has been added to help inverting negative
+  films.
+
+- A new histogram display called RGB Parade has been added. At the
+  same time the histogram module height can now be adjusted with 
+  <kbd>Ctrl+Scroll</kbd>.
+
+- The metadata feature has been made generic internally and has new
+  features. The user can now select the information he wants to see in the
+  metadata editor. This selection is automatically mirrored in collection
+  and image information modules.
+
+  Along with a new "notes" field, all the fields are multiline
+  <kbd>Ctrl+Enter</kbd>, sizable <kbd>Ctrl+Scroll</kbd> and can be set
+  as private (not exported). Metadata collection filters have an entry
+  "not defined". At import time it is possible to choose not to import
+  some metadata.
+
+- Image change detection has been made more reliable. This affects
+  lighttable thumbnails change symbol and history collection filter
+  which should now be accurate.
+
+  In darkroom navigation, this avoids to recalculate an image and save
+  the xmp file when there is no change.
+
+- A new down-sampling preference has been introduced for faster
+  response in darkroom. The preview is either computed at full
+  resolution (original, default value) or at 1/2, 1/3 or 1/4 of the
+  original size. This allow for better performance but can slightly
+  hinder the precision of the guided filter masking.
+
+  Note that this is a very delicate area to implement. Lot of care have
+  been done to ensure all is correct when using down sampling. It
+  touches all areas of darktable like masks, guided filter, liquify
+  controls, crop & rotate, lens and perspective corrections...
+
+- Clarify the three possible workflows. Previous version had a preference 
+  to choose whether to auto-apply the base curve module. Many questions were 
+  raised about the intention. The new preference introduces three workflows:
+
+  display-referred : use base-curve module
+
+  scene-referred   : use filmic and exposure modules (new default)
+
+  none             : use neither base-curve nor filmic
+
+- Filmic RGB goes to v4 (new color science) with integrated highlight recovery.
 
 ## New Features And Changes
 
-- Add darkroom loading screen.
-
-- Make modules labels a bit smaller for better UI consistency.
-
-- Add small rectangle around the angle display when using the
-  straightening tool for better lisibility.
-
-- Ensure the different views layout are recorded. Many views (and mode
-  like lighttable's culling or darkroom's color assessment), can have
-  the filmstrip or timeline bottom widgets, we record the exact layout
-  for each layout.
-
-- Add tool tips on module in history.
-
-- Add support for applying back the last added key-word with a simple
-  key short-cut. Default short-cut is <kbd>Alt+T</kbd>.
-
-- Add wide-gamut HLG/PQ based color space P3 and Rec2020.
-
-- Add custom borders support in framing module.
-
-- Add standard variables support in watermark module.
-
-- Allow the same short-cuts to be defined by different modules. This
-  makes it possible to have the filmstrip using the same short-cuts to
-  set stars than the lighttable.
-
-- Add log editing support for the L, R, G, B, C, g blending modes.
-  This gives more control on the dark pixels.
-
-- Define many new accels for most of the sliders to allow more control
-  using the keyboard.
-
-- Add support for curved gradients. The grandient mask can now be
+- Add support for curved gradients. The gradient mask can now be
   curved to revert fish-eye kind distortion and so become a straight
-  line on the horizon for example.
+  line on the horizon for example. This can also be used to artistic
+  goals.
 
-- Add support for AVIF file format.
+- Add support for AVIF file format (requires [libavif](https://github.com/AOMediaCodec/libavif) >= 0.7)
 
-- The images operations modules has been extended to support coping,
-  replacing and merging metadata.
+- Collect module has two new filters: module and module order.
 
-- Better visibility for the zoomed image part in the navigation widget.
+  The former makes it possible to filter pictures based on the
+  activated modules in the history. The latter can be used to filter
+  based on the pipe version (legacy up to 2.6 releases or v3.0
+  starting with 3.0 release).
 
-- Revert to smooth mode (was default in 2.6) in color zone module.
+- Tag in Collect module keeps track of the selected images order.
 
-- It is now possible to resize the collect module windows with
-  <kbd>Ctrl+Scroll</kbd>.
-
-- Add support for compressed Lut (.gmz) in the 3D Lut module.
-
-- Use a more natural folder order in the collect module, the latest
-  folder are now listed first.
+  When tag is at the first level of Collect module, any change
+  on the images order is kept along with the selected tag.
+  This allows to associate a specific order to every images (tag)
+  collection.
 
 - A full rewrite of the pipe ordering has been done. It is now
   possible to change the order of the pipe using a new module giving
   access to the legacy order (order used up to 2.6 releases) and the
   v3.0 order introduced with darktable 3.0 on Dec 2019. It is also
-  possible to create order presets which can be freely applied.
+  possible to create module order presets which can be freely applied.
 
   Note that the copy / paste of multi-instances when they have been
   reordered in a way that some other modules are separating them will
@@ -119,69 +161,245 @@ making a backup is strongly advised.
   will be the ground for proposing different strategies when applying
   styles.
 
+- The retouch module has a new keyboard shortcut "show or hide shapes" which can
+  be mapped to a key to quickly show or hide shapes. This is in
+  addition to the right-click on the image which does the same action.
+
+- The spot removal module keyboard shortcut to show-hide shapes has been renamed
+  to "show or hide shapes" for clarity and to be consistent with
+  the new keyboard shortcut in the retouch module.
+
+- It is possible to change the color of all overlays (shapes, guides,
+  etc), in the darkroom. This may come handy on some images where the gray
+  guides were barely visible. The possible colors are now: Grey,
+  Red, Green, Yellow, Cyan, Magenta. The colors can be cycled through
+  using <kbd>Ctrl+O</kbd>.
+
+- In the crop & rotate module, the pan movements can be restricted
+  vertically or horizontally using the <kbd>Shift</kbd> or
+  <kbd>Control</kbd> respectively.
+
+- The crop & rotate module now allows format ratios to be entered as
+  a float number.
+
+- When using a snapshot view, a flag has been added to clearly show the 
+  position of the snapshot.
+
+- Improve the falloff and radius of the vignette to 200% for better
+  control.
+
+- Add a user-defined mode in the white-balance module to keep the last
+  modification of the module. It is then possible to go back to the
+  last modified setting after selecting another mode (spot for
+  example).
+
+- Dynamic keyboard shortcuts have been added for combo-boxes making it
+  possible to select next and previous values directly from the
+  keyboard.
+
+- It is now possible to adjust the color picker areas just after
+  having created them. This is achieved by dragging one of the four
+  little square handles at the corner.
+
+- Tagging improvements: Entry tag(s) creation works now without image
+  selected.  It is allowed to create a tag on virtual node, to insert
+  a pipe <kbd>|</kbd> character in create tag (menu). The tree display
+  shows the newly created tags.
+
+- New variables $(LENS), $(EXIF_EXPOSURE_BIAS), $(VERSION_NAME) and
+  $(VERSION_IF_MULTI) have been defined. $(CATEGORYn(category)) works
+  now when multiple values on the same image (for example people) and
+  accepts 9 levels instead of 3 (for n).
+
+- Four new timestamps are now supported to store the import, last
+  export, last change and last print times. Those timestamps are also
+  made available in the collection module and so can be used to better
+  control of created collections.
+
+- Multiple image drag & drop works now on map view.
+
+- Add new preferences for keyboard shortcuts to control how
+  multi-instances are handled (use first or last instance, prefer the
+  visible, active or expanded instance). This also fixes some faults 
+  caused when duplicating or deleting modules, and when selecting
+  earlier edits in the history stack.
+
+- Introspection support has been added into darktable. At this time
+  this does not bring new features for end-users but it has provided a
+  basis for significant simplification of the code. This will provide easier
+  integration of new modules and will ensure better interactivity
+  consistency between modules.
+
+- Add optional grey-scale export of TIFF for monochrome images.
+
+- Add some tooltip information for tone equalizer.
+
+- Some actions like cropping are more responsive by triggering a
+  fast-pipe mode where the quality of the image is less important
+  while dragging the controls.
+
+- Better support for HiDPI icons theme on Windows.
+
+- Add keyboard shortcut for enabling/disabling tooltips <kbd>Shift+T</kbd>.
+
+- Better history stack module order (more logical) for newly-imported images.
+
+- Add confirmation when deleting/updating presets.
+
+- It is possible to handle (deleting, applying or exporting) multiple
+  styles in the style module. 
+
+- Applying a style now supports overwrite mode (it previously could
+  only append to the existing history stack). This makes the style module
+  consistent with the copy/paste of history.
+
+- Rework the sliders to make then look better (smaller and controls a
+  bit more visible).
+
+- Implement undo/redo for orientation changes from the lighttable.
+
+- Exported pictures size should be more conservative and stable when
+  flip or orientation is changed.
+
+- Using <kbd>Ctrl+Click</kbd> in blending module drawn masks it is possible to
+  allow continuous creation of masks.
+
+  Continuous mask creation was previously the default in the retouch and spot 
+  removal modules. For consistency this has been changed and so now one need to use 
+  <kbd>Ctrl+Click</kbd> in these modules as well for continuous mask creation.
+
+- Rejecting an image still keeps the last number of stars. So
+  un-rejecting it will recover the previous star rating.
+
+- Improve messages when a database lock is detected to give better
+  guidance about the possible solutions, checks to be done for
+  recovering from this situation.
+
+- Rework local laplacian implementation for a 2x speed-up.
+
+- Optimize the denoise profile module (bilateral filter) for better
+  performance.
+
+- Many part of the histogram code has been reworked for better
+  performance.
+
+- A new universal toast message framework has been put in place. This
+  is used to display information about changes performed with dynamic 
+  keyboard shortcuts when the module is collapsed. 
+  It gives visual information about the change being made 
+  (like exposure change or new opacity value, etc.).
+
+- The spot removal module has been enhanced to be more consistent with 
+  the functionality of the retouch module. A new button has been added 
+  to show/hide shapes. It also now supports continuous shape creation.
+
+- Add a new keyboard shortcut to toggle last snapshot on/off.
+
+- Add a new keyboard shortcut to show/hide lib modules.
+
+- Add a new keyboard shortcut to show/hide drawn masks for the currently active module
+
+- Allow for more than 500 images in tethered control which is needed
+  for time-lapse.
+
+- It is now possible to export masks in TIFF format.
+
+- Duplicate module now uses the new metadata field "version name" in place
+  of the title field to show a description of each image version
+
+- Fix support of legacy parameters in the basic adjustment module.
+
+- Add integrated database maintenance policy.
+
 ## Bug fixes
-
-- All valid Lut files are displayed in file selector.
-
-- Fix straightening in crop and rotate module when flip is applied.
-
-- The ellipse and gradient masks can now be manipulated when the
-  crop and rotate flip is activated.
-
-- Fix style editing from lighttable. The modules list was empty due to
-  an error in SQL statement.
-
-- Make clicking on group icon easier. The active zone around the group
-  icon was too small.
-
-- Make sure no more than 64 spots are added in spot removal module and
-  display a message when the limit is reached.
-
-- Delay histogram display until the image is fully loaded and so the
-  corresponding histogram is ready. Darktable was displaying the
-  previously computed histogram for a short period of time.
-
-- Properly update the XMP when doing undo/redo actions.
-
-- Fix discrepancies between the SSE/OpenCL local Laplacian code paths.
 
 - Better performance when using masks.
 
-- Better performance for tone equalizer's guided filter.
+- Fix some displayed images issues.
 
-- Exports should now better respect the final dimensions requested.
+- Fix to allow the shift modifier to be used in dynamic keyboard shortcuts.
 
-- Fix issues with brush opacity handling.
+- Fix exporting private tags issue with different settings along the path.
 
-- Better performance for computing the aspect ratio.
+- Fix possible freeze on liquify module.
 
-- Fix importing of duplicates on Windows.
+- Fix long text display when no space to show all by ellipsizing.
+  This allows the side panels to be reduced in size without adversely
+  affecting the UI.
 
-- Better visibility of tone curve grid on Grey theme.
-
-- Better accuracy for the keystone OSD lines.
-
-- Better performance and accuracy improvements for the waveform histogram.
-
-- Some HiDPI fixes in icons.
-
-- The Facebook, Google Photo and Flickr export storage have been
-  removed as not supported anymore due to deep changes in the provider
-  making it very hard to fix.
-
-- Fix brush OSD when in zoom mode. The brushes are now keeping thin
-  lines.
-
-- Fix watermark blurring when using rotation.
-
-- Fix using apostrophe in meta-data.
-
-- Fix time-line display reporting 61 minutes per hour.
+- Fix some crop & rotate issues.
 
 - Smoother transition for gradient shapes.
 
+- Fix the snapshot rotation which could go 180° in a single click.
+
+- Add missing icon for the tone-mapping module.
+
+- Fix color-zone module min & max indicator in edit by area mode.
+
+- Enhance performance of blending and retouch, tone equalizer,
+  color-picker modules when masks are set on/off and/or removing some
+  unnecessary reprocessing.
+
+- Various minor fixes to the shape selection buttons in the retouch module
+
+- Fix displayed curve in denoise profile Y0U0V0 mode.
+
+- Film rolls can be ordered by folder name or id (so in chronological
+  order).
+
+- Fix gphoto camera detection procedure.
+
+- Fix the opacity (a second attempt) issue which could go wrong and
+  let thinking that a mask had no effect.
+
+- Fix a possible infinite loop in the slideshow module.
+
+- Fix a possible out-of-bound indexing in the chromatic aberration module.
+
+- Fix issues when importing duplicates.
+
+- Fix possible race condition in tone equalizer module.
+
+## Notes
+
+- The histogram has been deactivated on the print view because after
+  lot of work on the histogram code it was not possible to have it
+  ready for this view. The work on this part is almost ready now so
+  the print view will get back its histogram for the 3.4 release.
+
+- An integration test suite has been added. This will ensure better
+  quality and keeping old edits intact. This is an important tool for
+  developers to ensure a rework of a module for performance reason
+  for example does not change visually the image.
+
 ## Lua
 
+- API changed to 6.0.0
+
+- facebook, flickr, and picasa removed from types.dt_imageio_storage_module_t.
+
+- piwigo added to type.dt_imageio_storage_module_t.
+
+- notes and version_name metadata fields added to types.dt_lua_image_t data type.
+
+- Added 4 new properties to dt_collection_properties_t,
+  DT_COLLECTION_PROP_IMPORT_TIMESTAMP, DT_COLLECTION_PROP_CHANGE_TIMESTAMP,
+  DT_COLLECTION_PROP_EXPORT_TIMESTAMP, DT_COLLECTION_PROP_PRINT_TIMESTAMP
+
+- added darktable.gui.panel_get_size and darktable.gui.panel_set_size functions
+  to set the width of the  left or right panels and the height of the bottom panel.
+
+- fixed is_password field of entry widget to work according to the API manual, so
+  now when it is set to true the field is hidden.
+
+- Added function darktable.gui.views.lighttable.is_image_visible to check if an image
+  is visible in lighttable view.
+
+- Added function darktable.gui.views.lighttable.set_image_visible to force an
+  image to be visible in lighttable view.
+
+- Added a lua scripts installer to the default luarc
 
 ## Changed Dependencies
 

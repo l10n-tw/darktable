@@ -86,6 +86,8 @@
 
 #ifdef HAVE_GRAPHICSMAGICK
 #include <magick/api.h>
+#elif defined HAVE_IMAGEMAGICK
+#include <MagickWand/MagickWand.h>
 #endif
 
 #include "dbus.h"
@@ -118,8 +120,8 @@ static int usage(const char *argv0)
   printf("  --conf <key>=<value>\n");
   printf("  --configdir <user config directory>\n");
   printf("  -d {all,cache,camctl,camsupport,control,dev,fswatch,input,lighttable,\n");
-  printf("      lua, masks,memory,nan,opencl,perf,pwstorage,print,sql,ioporder\n");
-  printf("      imageio\n");
+  printf("      lua,masks,memory,nan,opencl,perf,pwstorage,print,sql,ioporder,\n");
+  printf("      imageio}\n");
   printf("  --datadir <data directory>\n");
 #ifdef HAVE_OPENCL
   printf("  --disable-opencl\n");
@@ -239,8 +241,6 @@ int dt_load_from_string(const gchar *input, gboolean open_image_in_dr, gboolean 
   if(g_file_test(filename, G_FILE_TEST_IS_DIR))
   {
     // import a directory into a film roll
-    unsigned int last_char = strlen(filename) - 1;
-    if(filename[last_char] == '/') filename[last_char] = '\0';
     id = dt_film_import(filename);
     if(id)
     {
@@ -548,6 +548,12 @@ int dt_init(int argc, char *argv[], const gboolean init_gui, const gboolean load
                "  GraphicsMagick support enabled\n"
 #else
                "  GraphicsMagick support disabled\n"
+#endif
+
+#ifdef HAVE_IMAGEMAGICK
+               "  ImageMagick support enabled\n"
+#else
+               "  ImageMagick support disabled\n"
 #endif
 
 #ifdef HAVE_OPENEXR
@@ -917,6 +923,9 @@ int dt_init(int argc, char *argv[], const gboolean init_gui, const gboolean load
 
   // *SIGH*
   dt_set_signal_handlers();
+#elif defined HAVE_IMAGEMAGICK
+  /* ImageMagick init */
+  MagickWandGenesis();
 #endif
 
   darktable.opencl = (dt_opencl_t *)calloc(1, sizeof(dt_opencl_t));
@@ -983,12 +992,16 @@ int dt_init(int argc, char *argv[], const gboolean init_gui, const gboolean load
   // set up memory.darktable_iop_names table
   dt_iop_set_darktable_iop_table();
 
+  // set up the list of exiv2 metadata
+  dt_exif_set_exiv2_taglist();
+
   if(init_gui)
   {
 #ifdef HAVE_GPHOTO2
     // Initialize the camera control.
     // this is done late so that the gui can react to the signal sent but before switching to lighttable!
     darktable.camctl = dt_camctl_new();
+    dt_camctl_background_detect_cameras();
 #endif
 
     darktable.lib = (dt_lib_t *)calloc(1, sizeof(dt_lib_t));
@@ -1161,6 +1174,8 @@ void dt_cleanup()
 
 #ifdef HAVE_GRAPHICSMAGICK
   DestroyMagick();
+#elif defined HAVE_IMAGEMAGICK
+  MagickWandTerminus();
 #endif
 
   dt_guides_cleanup(darktable.guides);

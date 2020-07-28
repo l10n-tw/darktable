@@ -34,25 +34,38 @@ typedef struct dt_undo_ratings_t
   int after;
 } dt_undo_ratings_t;
 
-int dt_ratings_get(const int imgid)
+const int dt_ratings_get(const int imgid)
 {
   int stars = 0;
   dt_image_t *image = dt_image_cache_get(darktable.image_cache, imgid, 'r');
   if(image)
   {
-    stars = 0x7 & image->flags;
+    if(image->flags & DT_IMAGE_REJECTED)
+      stars = DT_VIEW_REJECT;
+    else
+      stars = DT_VIEW_RATINGS_MASK & image->flags;
     dt_image_cache_read_release(darktable.image_cache, image);
   }
   return stars;
 }
 
-static void _ratings_apply_to_image(int imgid, int rating)
+static void _ratings_apply_to_image(const int imgid, const int rating)
 {
   dt_image_t *image = dt_image_cache_get(darktable.image_cache, imgid, 'w');
 
   if(image)
   {
-    image->flags = (image->flags & ~0x7) | (0x7 & rating);
+    if(rating == DT_VIEW_REJECT)
+    {
+      // this is a toggle, we invert the DT_IMAGE_REJECTED flag
+      if(image->flags & DT_IMAGE_REJECTED)
+        image->flags = (image->flags & ~DT_IMAGE_REJECTED);
+      else
+        image->flags = (image->flags | DT_IMAGE_REJECTED);
+    }
+    else
+      image->flags = (image->flags & ~(DT_IMAGE_REJECTED | DT_VIEW_RATINGS_MASK))
+        | (DT_VIEW_RATINGS_MASK & rating);
     // synch through:
     dt_image_cache_write_release(darktable.image_cache, image, DT_IMAGE_CACHE_SAFE);
   }
@@ -106,15 +119,33 @@ static void _ratings_apply(GList *imgs, const int rating, GList **undo, const gb
   }
 }
 
-void dt_ratings_apply(const int imgid, const int rating, const gboolean toggle_on, const gboolean undo_on, const gboolean group_on)
+void dt_ratings_apply_on_list(const GList *img, const int rating, const gboolean undo_on)
+{
+  GList *imgs = g_list_copy((GList *)img);
+  if(imgs)
+  {
+    GList *undo = NULL;
+    if(undo_on) dt_undo_start_group(darktable.undo, DT_UNDO_RATINGS);
+
+    _ratings_apply(imgs, rating, &undo, undo_on);
+
+    g_list_free(imgs);
+    if(undo_on)
+    {
+      dt_undo_record(darktable.undo, NULL, DT_UNDO_RATINGS, undo, _pop_undo, _ratings_undo_data_free);
+      dt_undo_end_group(darktable.undo);
+    }
+    dt_collection_hint_message(darktable.collection);
+  }
+}
+
+void dt_ratings_apply_on_image(const int imgid, const int rating, const gboolean toggle_on,
+                               const gboolean undo_on, const gboolean group_on)
 {
   GList *imgs = NULL;
   int new_rating = rating;
 
-  if(imgid == -1)
-    imgs = dt_collection_get_selected(darktable.collection, -1);
-  else
-    imgs = g_list_append(imgs, GINT_TO_POINTER(imgid));
+  if(imgid > 0) imgs = g_list_append(imgs, GINT_TO_POINTER(imgid));
 
   if(imgs)
   {
@@ -126,12 +157,11 @@ void dt_ratings_apply(const int imgid, const int rating, const gboolean toggle_o
     {
       new_rating = DT_VIEW_DESERT;
     }
-    else if((previous_rating == DT_VIEW_REJECT) && (new_rating == DT_VIEW_REJECT))
-    {
-      new_rating = DT_VIEW_DESERT;
-    }
 
+    GList *undo = NULL;
+    if(undo_on) dt_undo_start_group(darktable.undo, DT_UNDO_RATINGS);
     if(group_on) dt_grouping_add_grouped_images(&imgs);
+
     const guint count = g_list_length(imgs);
     if(count > 1)
     {
@@ -141,24 +171,18 @@ void dt_ratings_apply(const int imgid, const int rating, const gboolean toggle_o
         dt_control_log(ngettext("applying rating %d to %d image", "applying rating %d to %d images", count),
                        new_rating, count);
     }
-    
-    if(undo_on) dt_undo_start_group(darktable.undo, DT_UNDO_RATINGS);
-    GList *undo = NULL;
+
     _ratings_apply(imgs, new_rating, &undo, undo_on);
 
-    g_list_free(imgs);
     if(undo_on)
     {
       dt_undo_record(darktable.undo, NULL, DT_UNDO_RATINGS, undo, _pop_undo, _ratings_undo_data_free);
       dt_undo_end_group(darktable.undo);
     }
-    dt_collection_hint_message(darktable.collection);
+    g_list_free(imgs);
   }
   else
     dt_control_log(_("no images selected to apply rating"));
-  /* redraw view */
-  /* dt_control_queue_redraw_center() */
-  /* needs to be called in the caller function */
 }
 
 // modelines: These editor modelines have been set for all relevant files by tools/update_modelines.sh

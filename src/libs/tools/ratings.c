@@ -17,6 +17,7 @@
 */
 
 #include "common/ratings.h"
+#include "common/collection.h"
 #include "common/debug.h"
 #include "control/control.h"
 #include "dtgtk/button.h"
@@ -195,10 +196,10 @@ static gboolean _lib_ratings_button_press_callback(GtkWidget *widget, GdkEventBu
   dt_lib_ratings_t *d = (dt_lib_ratings_t *)self->data;
   if(d->current > 0)
   {
-    const int32_t mouse_over_id = dt_view_get_image_to_act_on();
-    dt_ratings_apply(mouse_over_id, d->current, TRUE, TRUE, TRUE);
-    // dt_control_log(ngettext("applying rating %d to %d image", "applying rating %d to %d images", 1),
-    // d->current, 1); //FIXME: Change the message after release
+    const GList *imgs = dt_view_get_images_to_act_on(FALSE, TRUE);
+    dt_ratings_apply_on_list(imgs, d->current, TRUE);
+    dt_collection_update_query(darktable.collection, DT_COLLECTION_CHANGE_RELOAD,
+                               g_list_copy((GList *)imgs));
 
     dt_control_queue_redraw_center();
   }
@@ -208,8 +209,6 @@ static gboolean _lib_ratings_button_press_callback(GtkWidget *widget, GdkEventBu
 static gboolean _lib_ratings_button_release_callback(GtkWidget *widget, GdkEventButton *event,
                                                      gpointer user_data)
 {
-  /*  dt_lib_module_t *self = (dt_lib_module_t *)user_data;
-    self=NULL;*/
   return TRUE;
 }
 

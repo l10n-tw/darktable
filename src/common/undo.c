@@ -16,12 +16,13 @@
     along with darktable.  If not, see <http://www.gnu.org/licenses/>.
 */
 
-#include "common/darktable.h"
-#include "common/collection.h"
-#include "common/image.h"
 #include "common/undo.h"
-#include <glib.h>    // for GList, gpointer, g_list_first, g_list_prepend
-#include <stdlib.h>  // for NULL, malloc, free
+#include "common/collection.h"
+#include "common/darktable.h"
+#include "common/image.h"
+#include "control/control.h"
+#include <glib.h>   // for GList, gpointer, g_list_first, g_list_prepend
+#include <stdlib.h> // for NULL, malloc, free
 #include <sys/time.h>
 
 const double MAX_TIME_PERIOD = 0.5; // in second
@@ -237,6 +238,7 @@ static void _undo_do_undo_redo(dt_undo_t *self, uint32_t filter, dt_undo_action_
     l = g_list_next(l);
   }
   UNLOCK;
+
   if(imgs)
   {
     imgs = g_list_sort(imgs, _images_list_cmp);
@@ -246,11 +248,12 @@ static void _undo_do_undo_redo(dt_undo_t *self, uint32_t filter, dt_undo_action_
         imgs = g_list_delete_link(imgs, img->next);
     // udpate xmp for updated images
     for(GList *img = imgs; img != NULL; img = img->next)
+    {
       dt_image_synch_xmp(GPOINTER_TO_INT(img->data));
-    g_list_free(imgs);
+    }
   }
 
-  dt_collection_update_query(darktable.collection);
+  dt_collection_update_query(darktable.collection, DT_COLLECTION_CHANGE_RELOAD, imgs);
 }
 
 void dt_undo_do_redo(dt_undo_t *self, uint32_t filter)

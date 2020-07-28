@@ -42,6 +42,16 @@ include(DefineOptions.cmake)
 # Some defaults are set for OpenBSD as well (info and man pages).
 
 include(GNUInstallDirs)
+include(FeatureSummary)
+
+# https://medium.com/@alasher/colored-c-compiler-output-with-ninja-clang-gcc-10bfe7f2b949
+if(${FORCE_COLORED_OUTPUT})
+  if("${CMAKE_CXX_COMPILER_ID}" STREQUAL "GNU")
+    add_compile_options(-fdiagnostics-color=always)
+  elseif("${CMAKE_CXX_COMPILER_ID}" STREQUAL "Clang")
+    add_compile_options(-fcolor-diagnostics)
+  endif()
+endif()
 
 # Whether to use relative paths for the build RPATH
 if (APPLE)
@@ -120,6 +130,7 @@ include(compiler-versions)
 
 if(WIN32)
   message("-- Win32 build detected, setting default features")
+  set(CMAKE_FIND_LIBRARY_SUFFIXES .dll ${CMAKE_FIND_LIBRARY_SUFFIXES})
   set(USE_COLORD OFF)
   set(USE_KWALLET OFF)
   set(BUILD_CMSTEST OFF)
@@ -285,7 +296,7 @@ if(TESTBUILD_OPENCL_PROGRAMS)
   endmacro()
 
   # 3.9 is the first version with which this works.
-  find_llvm("9;8;7;6.0;5.0;4.0;3.9")
+  find_llvm("10;9;8;7;6.0;5.0;4.0;3.9")
 
   if (LLVM_FOUND)
     message(STATUS "Found LLVM ${LLVM_PACKAGE_VERSION}")
@@ -362,6 +373,15 @@ if(USE_XMLLINT)
     message(STATUS "Found xmllint")
   endif(${Xmllint_BIN} STREQUAL "Xmllint_BIN-NOTFOUND")
 endif(USE_XMLLINT)
+
+find_program(exiftool_BIN exiftool)
+if(${exiftool_BIN} STREQUAL "exiftool_BIN-NOTFOUND")
+  message(STATUS "Missing exiftool")
+  set(HAVE_EXIFTOOL 0)
+else()
+  message(STATUS "Found exiftool")
+  set(HAVE_EXIFTOOL 1)
+endif()
 
 # done with looking for programs
 if(NOT EXTERNAL_PROGRAMS_FOUND)
@@ -504,3 +524,5 @@ configure_file(
 
 add_custom_target(uninstall
     COMMAND ${CMAKE_COMMAND} -P ${CMAKE_CURRENT_BINARY_DIR}/cmake_uninstall.cmake)
+
+feature_summary(WHAT ALL)

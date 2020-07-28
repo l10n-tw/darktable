@@ -1,4 +1,4 @@
-include_directories("${CMAKE_CURRENT_BINARY_DIR}/../" "${CMAKE_CURRENT_SOURCE_DIR}")
+include_directories("${CMAKE_CURRENT_BINARY_DIR}/../")
 
 include(manage-symbol-visibility)
 
@@ -22,10 +22,10 @@ if(USE_MAP)
 endif(USE_MAP)
 
 
-if(GPHOTO2_FOUND)
+if(Gphoto2_FOUND)
     add_library(tethering MODULE "tethering.c")
     set(MODULES ${MODULES} tethering)
-endif(GPHOTO2_FOUND)
+endif(Gphoto2_FOUND)
 
 if(CUPS_FOUND)
     add_library(print MODULE "print.c")

@@ -44,7 +44,7 @@
 
 // whenever _create_*_schema() gets changed you HAVE to bump this version and add an update path to
 // _upgrade_*_schema_step()!
-#define CURRENT_DATABASE_VERSION_LIBRARY 24
+#define CURRENT_DATABASE_VERSION_LIBRARY 30
 #define CURRENT_DATABASE_VERSION_DATA     6
 
 typedef struct dt_database_t
@@ -61,6 +61,7 @@ typedef struct dt_database_t
   sqlite3 *handle;
 
   gchar *error_message, *error_dbfilename;
+  int error_other_pid;
 } dt_database_t;
 
 
@@ -1426,7 +1427,9 @@ static int _upgrade_library_schema_step(dt_database_t *db, int version)
     // insert an history_hash entry for all images which have an history
     // note that images without history don't get hash and are considered as basic
     sqlite3_stmt *h_stmt;
-    const gboolean basecurve_auto_apply = dt_conf_get_bool("plugins/darkroom/basecurve/auto_apply");
+    char *workflow = dt_conf_get_string("plugins/darkroom/workflow");
+    const gboolean basecurve_auto_apply = strcmp(workflow, "display-referred") == 0;
+    g_free(workflow);
     const gboolean sharpen_auto_apply = dt_conf_get_bool("plugins/darkroom/sharpen/auto_apply");
     char *query = NULL;
     query = dt_util_dstrcat(query,
@@ -1522,6 +1525,152 @@ static int _upgrade_library_schema_step(dt_database_t *db, int version)
     sqlite3_exec(db->handle, "COMMIT", NULL, NULL, NULL);
 
     new_version = 24;
+  }
+  else if(version == 24)
+  {
+    TRY_EXEC("ALTER TABLE main.history_hash ADD COLUMN mipmap_hash BLOB",
+             "[init] can't add `mipmap_hash' column to history_hash table in database\n");
+
+    new_version = 25;
+  }
+  else if(version == 25)
+  {
+    TRY_EXEC("ALTER TABLE main.images ADD COLUMN exposure_bias REAL",
+             "[init] can't add `exposure_bias' column to images table in database\n");
+
+    new_version = 26;
+  }
+  else if(version == 26)
+  {
+    sqlite3_exec(db->handle, "BEGIN TRANSACTION", NULL, NULL, NULL);
+
+    TRY_EXEC("CREATE TABLE main.new_film_rolls "
+             "(id INTEGER PRIMARY KEY, "
+             "access_timestamp INTEGER, "
+             "folder VARCHAR(1024) NOT NULL)",
+             "[init] can't create new_film_rolls table\n");
+
+    TRY_EXEC("INSERT INTO main.new_film_rolls"
+             "(id, access_timestamp, folder) "
+             "SELECT id, "
+             "strftime('%s', replace(substr(datetime_accessed, 1, 10), ':', '-') || substr(datetime_accessed, 11), 'utc'), "
+             "folder "
+             "FROM film_rolls "
+             "WHERE folder IS NOT NULL",
+             "[init] can't populate new_film_rolls table from film_rolls\n");
+
+    TRY_EXEC("DROP TABLE film_rolls",
+             "[init] can't delete table film_rolls\n");
+
+    TRY_EXEC("ALTER TABLE main.new_film_rolls RENAME TO film_rolls",
+             "[init] can't rename table new_film_rolls to film_rolls\n");
+
+    TRY_EXEC("CREATE INDEX main.film_rolls_folder_index ON film_rolls (folder)",
+             "[init] can't create index `film_rolls_folder_index' on table `film_rolls'\n");
+
+    sqlite3_exec(db->handle, "COMMIT", NULL, NULL, NULL);
+    new_version = 27;
+  }
+  else if(version == 27)
+  {
+    sqlite3_exec(db->handle, "BEGIN TRANSACTION", NULL, NULL, NULL);
+
+    TRY_EXEC("ALTER TABLE main.images ADD COLUMN import_timestamp INTEGER DEFAULT -1",
+             "[init] can't add `import_timestamp' column to images table in database\n");
+    TRY_EXEC("ALTER TABLE main.images ADD COLUMN change_timestamp INTEGER DEFAULT -1",
+             "[init] can't add `change_timestamp' column to images table in database\n");
+    TRY_EXEC("ALTER TABLE main.images ADD COLUMN export_timestamp INTEGER DEFAULT -1",
+             "[init] can't add `export_timestamp' column to images table in database\n");
+    TRY_EXEC("ALTER TABLE main.images ADD COLUMN print_timestamp INTEGER DEFAULT -1",
+             "[init] can't add `print_timestamp' column to images table in database\n");
+
+    TRY_EXEC("UPDATE main.images SET import_timestamp = (SELECT access_timestamp "
+               "FROM main.film_rolls WHERE film_rolls.id = images.film_id)",
+             "[init] can't populate import_timestamp column from film_rolls.access_timestamp.\n");
+
+    TRY_EXEC("UPDATE main.images SET change_timestamp = images.write_timestamp "
+               "WHERE images.write_timestamp IS NOT NULL "
+                 "AND images.id = (SELECT imgid FROM tagged_images "
+                   "JOIN data.tags ON tags.id = tagged_images.tagid "
+                     "WHERE data.tags.name = 'darktable|changed')",
+             "[init] can't populate change_timestamp column from images.write_timestamp.\n");
+
+    sqlite3_exec(db->handle, "COMMIT", NULL, NULL, NULL);
+    new_version = 28;
+  }
+  else if(version == 28)
+  {
+    sqlite3_exec(db->handle, "BEGIN TRANSACTION", NULL, NULL, NULL);
+
+    // clear flag DT_IMAGE_REJECTED (was not used)
+    TRY_EXEC("UPDATE main.images SET flags = (flags & ~8)",
+             "[init] can't clear rejected flags");
+
+    // add DT_IMAGE_REJECTED and clear rating for all images being rejected
+    TRY_EXEC("UPDATE main.images SET flags = (flags | 8) & ~7 WHERE (flags & 7) = 6",
+             "[init] can't set rejected flags");
+
+    sqlite3_exec(db->handle, "COMMIT", NULL, NULL, NULL);
+    new_version = 29;
+  }
+  else if(version == 29)
+  {
+    sqlite3_exec(db->handle, "BEGIN TRANSACTION", NULL, NULL, NULL);
+
+    // add position in tagged_images table
+    TRY_EXEC("ALTER TABLE main.tagged_images ADD COLUMN position INTEGER",
+             "[init] can't add `position' column to tagged_images table in database\n");
+
+    TRY_EXEC("CREATE INDEX IF NOT EXISTS main.tagged_images_imgid_index ON tagged_images (imgid)",
+             "[init] can't create image index on tagged_images\n");
+    TRY_EXEC("CREATE INDEX IF NOT EXISTS main.tagged_images_position_index ON tagged_images (position)",
+             "[init] can't create position index on tagged_images\n");
+    TRY_EXEC("UPDATE main.tagged_images SET position = (tagid + imgid) << 32",
+             "[init] can't populate position on tagged_images\n");
+
+    // remove caption and description fields from images table
+
+    TRY_EXEC("CREATE TABLE main.i (id INTEGER PRIMARY KEY AUTOINCREMENT, group_id INTEGER, film_id INTEGER, "
+             "width INTEGER, height INTEGER, filename VARCHAR, maker VARCHAR, model VARCHAR, "
+             "lens VARCHAR, exposure REAL, aperture REAL, iso REAL, focal_length REAL, "
+             "focus_distance REAL, datetime_taken CHAR(20), flags INTEGER, "
+             "output_width INTEGER, output_height INTEGER, crop REAL, "
+             "raw_parameters INTEGER, raw_denoise_threshold REAL, "
+             "raw_auto_bright_threshold REAL, raw_black INTEGER, raw_maximum INTEGER, "
+             "license VARCHAR, sha1sum CHAR(40), "
+             "orientation INTEGER, histogram BLOB, lightmap BLOB, longitude REAL, "
+             "latitude REAL, altitude REAL, color_matrix BLOB, colorspace INTEGER, version INTEGER, "
+             "max_version INTEGER, write_timestamp INTEGER, history_end INTEGER, position INTEGER, "
+             "aspect_ratio REAL, exposure_bias REAL, "
+             "import_timestamp INTEGER DEFAULT -1, change_timestamp INTEGER DEFAULT -1, "
+             "export_timestamp INTEGER DEFAULT -1, print_timestamp INTEGER DEFAULT -1)",
+             "[init] can't create table i\n");
+
+    TRY_EXEC("INSERT INTO main.i SELECT id, group_id, film_id, width, height, filename, maker, model,"
+             " lens, exposure, aperture, iso, focal_length, focus_distance, datetime_taken, flags,"
+             " output_width, output_height, crop, raw_parameters, raw_denoise_threshold,"
+             " raw_auto_bright_threshold, raw_black, raw_maximum, license, sha1sum,"
+             " orientation, histogram, lightmap, longitude, latitude, altitude, color_matrix, colorspace, version,"
+             " max_version, write_timestamp, history_end, position, aspect_ratio, exposure_bias,"
+             " import_timestamp, change_timestamp, export_timestamp, print_timestamp "
+             "FROM main.images",
+             "[init] can't populate table i\n");
+    TRY_EXEC("DROP TABLE main.images",
+             "[init] can't drop table images\n");
+    TRY_EXEC("ALTER TABLE main.i RENAME TO images",
+             "[init] can't rename i to images\n");
+
+    TRY_EXEC("CREATE INDEX main.images_group_id_index ON images (group_id)",
+          "[init] can't create group_id index on images table\n");
+    TRY_EXEC("CREATE INDEX main.images_film_id_index ON images (film_id)",
+          "[init] can't create film_id index on images table\n");
+    TRY_EXEC("CREATE INDEX main.images_filename_index ON images (filename)",
+          "[init] can't create filename index on images table\n");
+    TRY_EXEC("CREATE INDEX main.image_position_index ON images (position)",
+          "[init] can't create position index on images table\n");
+
+    sqlite3_exec(db->handle, "COMMIT", NULL, NULL, NULL);
+    new_version = 30;
   }
   else
     new_version = version; // should be the fallback so that calling code sees that we are in an infinite loop
@@ -1769,7 +1918,7 @@ static void _create_library_schema(dt_database_t *db)
   ////////////////////////////// film_rolls
   sqlite3_exec(db->handle,
                "CREATE TABLE main.film_rolls "
-               "(id INTEGER PRIMARY KEY, datetime_accessed CHAR(20), "
+               "(id INTEGER PRIMARY KEY, access_timestamp INTEGER, "
                //                        "folder VARCHAR(1024), external_drive VARCHAR(1024))", //
                //                        FIXME: make sure to bump CURRENT_DATABASE_VERSION_LIBRARY and add a
                //                        case to _upgrade_library_schema_step when adding this!
@@ -1786,10 +1935,13 @@ static void _create_library_schema(dt_database_t *db)
       "output_width INTEGER, output_height INTEGER, crop REAL, "
       "raw_parameters INTEGER, raw_denoise_threshold REAL, "
       "raw_auto_bright_threshold REAL, raw_black INTEGER, raw_maximum INTEGER, "
-      "caption VARCHAR, description VARCHAR, license VARCHAR, sha1sum CHAR(40), "
+      "license VARCHAR, sha1sum CHAR(40), "
       "orientation INTEGER, histogram BLOB, lightmap BLOB, longitude REAL, "
       "latitude REAL, altitude REAL, color_matrix BLOB, colorspace INTEGER, version INTEGER, "
-      "max_version INTEGER, write_timestamp INTEGER, history_end INTEGER, position INTEGER, aspect_ratio REAL)",
+      "max_version INTEGER, write_timestamp INTEGER, history_end INTEGER, position INTEGER, "
+      "aspect_ratio REAL, exposure_bias REAL, "
+      "import_timestamp INTEGER DEFAULT -1, change_timestamp INTEGER DEFAULT -1, "
+      "export_timestamp INTEGER DEFAULT -1, print_timestamp INTEGER DEFAULT -1)",
       NULL, NULL, NULL);
   sqlite3_exec(db->handle, "CREATE INDEX main.images_group_id_index ON images (group_id)", NULL, NULL, NULL);
   sqlite3_exec(db->handle, "CREATE INDEX main.images_film_id_index ON images (film_id)", NULL, NULL, NULL);
@@ -1817,9 +1969,11 @@ static void _create_library_schema(dt_database_t *db)
       NULL, NULL, NULL);
 
   ////////////////////////////// tagged_images
-  sqlite3_exec(db->handle, "CREATE TABLE main.tagged_images (imgid INTEGER, tagid INTEGER, "
+  sqlite3_exec(db->handle, "CREATE TABLE main.tagged_images (imgid INTEGER, tagid INTEGER, position INTEGER, "
                            "PRIMARY KEY (imgid, tagid))", NULL, NULL, NULL);
   sqlite3_exec(db->handle, "CREATE INDEX main.tagged_images_tagid_index ON tagged_images (tagid)", NULL, NULL, NULL);
+  sqlite3_exec(db->handle, "CREATE INDEX main.tagged_images_imgid_index ON selected_images (imgid)", NULL, NULL, NULL);
+  sqlite3_exec(db->handle, "CREATE INDEX main.tagged_images_position_index ON selected_images (position)", NULL, NULL, NULL);
   ////////////////////////////// color_labels
   sqlite3_exec(db->handle, "CREATE TABLE main.color_labels (imgid INTEGER, color INTEGER)", NULL, NULL, NULL);
   sqlite3_exec(db->handle, "CREATE UNIQUE INDEX main.color_labels_idx ON color_labels (imgid, color)", NULL, NULL,
@@ -1831,7 +1985,7 @@ static void _create_library_schema(dt_database_t *db)
   sqlite3_exec(db->handle, "CREATE TABLE main.module_order (imgid INTEGER PRIMARY KEY, version INTEGER, iop_list VARCHAR)",
                NULL, NULL, NULL);
   sqlite3_exec(db->handle, "CREATE TABLE main.history_hash (imgid INTEGER PRIMARY KEY, "
-               "basic_hash BLOB, auto_hash BLOB, current_hash BLOB)",
+               "basic_hash BLOB, auto_hash BLOB, current_hash BLOB, mipmap_hash BLOB)",
                NULL, NULL, NULL);
 }
 
@@ -1910,11 +2064,16 @@ static void _create_memory_schema(dt_database_t *db)
       NULL, NULL, NULL);
   sqlite3_exec(
       db->handle,
-      "CREATE TABLE memory.undo_masks_history (id INTEGER, imgid INTEGER, num INTEGER, formid INTEGER, form INTEGER, "
-      "name VARCHAR(256), version INTEGER, points BLOB, points_count INTEGER, source BLOB)",
+      "CREATE TABLE memory.undo_masks_history (id INTEGER, imgid INTEGER, num INTEGER, formid INTEGER,"
+      " form INTEGER, name VARCHAR(256), version INTEGER, points BLOB, points_count INTEGER, source BLOB)",
+      NULL, NULL, NULL);
+  sqlite3_exec(
+      db->handle,
+      "CREATE TABLE memory.undo_module_order (id INTEGER, imgid INTEGER, version INTEGER, iop_list VARCHAR)",
       NULL, NULL, NULL);
   sqlite3_exec(db->handle,
-      "CREATE TABLE memory.darktable_iop_names (operation VARCHAR(256) PRIMARY KEY, name VARCHAR(256))", NULL, NULL, NULL);
+      "CREATE TABLE memory.darktable_iop_names (operation VARCHAR(256) PRIMARY KEY, name VARCHAR(256))",
+      NULL, NULL, NULL);
 }
 
 static void _sanitize_db(dt_database_t *db)
@@ -1946,6 +2105,12 @@ static void _sanitize_db(dt_database_t *db)
   }
   sqlite3_finalize(stmt);
   sqlite3_finalize(innerstmt);
+
+  // make sure film_roll folders don't end in "/", that will result in empty entries in the collect module
+  sqlite3_exec(db->handle,
+               "UPDATE main.film_rolls SET folder = substr(folder, 1, length(folder) - 1) WHERE folder LIKE '%/'",
+               NULL, NULL, NULL);
+
 }
 
 // in library we keep the names of the tags used in tagged_images. however, using that table at runtime results
@@ -2004,21 +2169,53 @@ void dt_database_show_error(const dt_database_t *db)
 {
   if(!db->lock_acquired)
   {
-    char *label_text = g_markup_printf_escaped(_("an error has occurred while trying to open the database from\n"
-                                                  "\n"
-                                                  "<span style=\"italic\">%s</span>\n"
-                                                  "\n"
-                                                  "%s\n"),
-                                                db->error_dbfilename, db->error_message ? db->error_message : "");
+    char lck_pathname[1024];
+    snprintf(lck_pathname, sizeof(lck_pathname), "%s.lock", db->error_dbfilename);
+    char *lck_dirname = g_strdup(lck_pathname);
+    char *lck_filename = g_strrstr(lck_dirname, "/") + 1 ;
+    *g_strrstr(lck_dirname, "/") = '\0';
 
-    dt_gui_show_standalone_yes_no_dialog(_("darktable - error locking database"), label_text, _("close darktable"),
-                                         /*_("try again")*/NULL);
+    char *label_text = g_markup_printf_escaped(
+        _("\n"
+          " At startup, the database failed to open because at least one of the two files in the database is locked.\n"
+          "\n"
+          " The persistence of the lock is mainly caused by one of the two following causes:\n"
+          "\n"
+          " - Another occurrence of darktable has already opened this database file and locked it for its benefit.\n"
+          "\n"
+          " - A previous occurrence of darktable ended abnormally and therefore \n"
+          "   could not close one or both files in the database properly.\n"
+          "\n"
+          " How to solve this problem?\n"
+          "\n"
+          " 1 - Search in your environment if another darktable occurrence is active. If so, use it or close it. \n"
+          "     The lock indicates that the process number of this occurrence is : <i><b>%d</b></i>\n"
+          "\n"
+          " 2 - If you can't find this other occurrence, try closing your session and reopening it or shutting down your computer. \n"
+          "     This will delete all running programs and thus close the database correctly.\n"
+          "\n"
+          " 3 - If these two actions are not enough, it is because at least one of the two files that materialize the locks remains \n"
+          "     and that these are no longer attached to any occurrence of darktable. It is then necessary to delete it (or them). \n"
+          "     The two files are named <i>data.db.lock</i> and <i>library.db.lock</i> respectively. The opening mechanism signals \n"
+          "     the presence of the <i><b>%s</b></i> file in the <i><b>%s</b></i> folder. \n"
+          "     (full pathname: <i><b>%s</b></i>).\n"
+          "\n"
+          "     <u>Caution!</u> Do not delete these files without first checking that there are no more occurrences of darktable, \n"
+          "     otherwise you risk generating serious inconsistencies in your database.\n"
+          "\n"
+          " As soon as you have identified and removed the cause of the lock, darktable will start without any problem.\n"),
+      db->error_other_pid, lck_filename, lck_dirname, lck_pathname);
 
+    dt_gui_show_standalone_yes_no_dialog(_("darktable cannot be started because the database is locked"),
+                                         label_text, _("close darktable"), NULL);
+
+    g_free(lck_dirname);
     g_free(label_text);
   }
 
   g_free(db->error_message);
   g_free(db->error_dbfilename);
+  ((dt_database_t *)db)->error_other_pid = 0;
   ((dt_database_t *)db)->error_message = NULL;
   ((dt_database_t *)db)->error_dbfilename = NULL;
 }
@@ -2105,8 +2302,8 @@ lock_again:
         int foo;
         if((foo = read(fd, buf, sizeof(buf) - 1)) > 0)
         {
-          int other_pid = atoi(buf);
-          if(!pid_is_alive(other_pid))
+          db->error_other_pid = atoi(buf);
+          if(!pid_is_alive(db->error_other_pid))
           {
             // the other process seems to no longer exist. unlink the .lock file and try again
             g_unlink(*lockfile);
@@ -2121,8 +2318,8 @@ lock_again:
             fprintf(
               stderr,
               "[init] the database lock file contains a pid that seems to be alive in your system: %d\n",
-              other_pid);
-            db->error_message = g_strdup_printf(_("the database lock file contains a pid that seems to be alive in your system: %d"), other_pid);
+              db->error_other_pid);
+            db->error_message = g_strdup_printf(_("the database lock file contains a pid that seems to be alive in your system: %d"), db->error_other_pid);
           }
         }
         else
@@ -2243,8 +2440,11 @@ dt_database_t *dt_database_init(const char *alternative, const gboolean load_dat
   sqlite3_initialize();
 
 start:
-  /* migrate default database location to new default */
-  _database_migrate_to_xdg_structure();
+  if(alternative == NULL)
+  {
+    /* migrate default database location to new default */
+    _database_migrate_to_xdg_structure();
+  }
 
   /* delete old mipmaps files */
   _database_delete_mipmaps_files();
@@ -2630,15 +2830,15 @@ static void _database_migrate_to_xdg_structure()
 
   if(conf_db && conf_db[0] != '/')
   {
-    char *homedir = getenv("HOME");
+    const char *homedir = getenv("HOME");
     snprintf(dbfilename, sizeof(dbfilename), "%s/%s", homedir, conf_db);
     if(g_file_test(dbfilename, G_FILE_TEST_EXISTS))
     {
-      fprintf(stderr, "[init] moving database into new XDG directory structure\n");
       char destdbname[PATH_MAX] = { 0 };
       snprintf(destdbname, sizeof(dbfilename), "%s/%s", datadir, "library.db");
       if(!g_file_test(destdbname, G_FILE_TEST_EXISTS))
       {
+        fprintf(stderr, "[init] moving database into new XDG directory structure\n");
         rename(dbfilename, destdbname);
         dt_conf_set_string("database", "library.db");
       }
@@ -2675,13 +2875,80 @@ gboolean dt_database_get_lock_acquired(const dt_database_t *db)
   return db->lock_acquired;
 }
 
+int _get_pragma_val(const struct dt_database_t *db, const char* pragma)
+{
+  gchar* query= g_strdup_printf("PRAGMA %s", pragma);
+  int val = -1;
+  sqlite3_stmt *stmt;
+  const int rc = sqlite3_prepare_v2(db->handle, query,-1, &stmt, NULL);
+  if(rc == SQLITE_OK && sqlite3_step(stmt) == SQLITE_ROW)
+  {
+    val = sqlite3_column_int(stmt, 0);
+  }
+  sqlite3_finalize(stmt);
+  g_free(query);
+
+  return val;
+}
+
+#define ERRCHECK {if (err!=NULL) {dt_print(DT_DEBUG_SQL, "[db maintenance] maintenance error: '%s'\n",err); sqlite3_free(err); err=NULL;}}
 void _dt_database_maintenance(const struct dt_database_t *db)
 {
-  sqlite3_exec(db->handle, "VACUUM data", NULL, NULL, NULL);
-  sqlite3_exec(db->handle, "VACUUM main", NULL, NULL, NULL);
-  sqlite3_exec(db->handle, "ANALYZE data", NULL, NULL, NULL);
-  sqlite3_exec(db->handle, "ANALYZE main", NULL, NULL, NULL);
+  char* err = NULL;
+
+  const int main_pre_free_count = _get_pragma_val(db, "main.freelist_count");
+  const int main_page_size = _get_pragma_val(db, "main.page_size");
+  const int data_pre_free_count = _get_pragma_val(db, "data.freelist_count");
+  const int data_page_size = _get_pragma_val(db, "data.page_size");
+
+  const guint64 calc_pre_size = (main_pre_free_count*main_page_size) + (data_pre_free_count*data_page_size);
+
+  if(calc_pre_size == 0)
+  {
+    dt_print(DT_DEBUG_SQL, "[db maintenance] maintenance deemed unnecesary, performing only analyze.\n");
+    sqlite3_exec(db->handle, "ANALYZE data", NULL, NULL, &err);
+    ERRCHECK
+    sqlite3_exec(db->handle, "ANALYZE main", NULL, NULL, &err);
+    ERRCHECK
+    sqlite3_exec(db->handle, "ANALYZE", NULL, NULL, &err);
+    ERRCHECK
+    return;
+  }
+
+  sqlite3_exec(db->handle, "VACUUM data", NULL, NULL, &err);
+  ERRCHECK
+  sqlite3_exec(db->handle, "VACUUM main", NULL, NULL, &err);
+  ERRCHECK
+  sqlite3_exec(db->handle, "ANALYZE data", NULL, NULL, &err);
+  ERRCHECK
+  sqlite3_exec(db->handle, "ANALYZE main", NULL, NULL, &err);
+  ERRCHECK
+
+  // for some reason this is needed in some cases
+  // in case above performed vacuum+analyze properly, this is noop.
+  sqlite3_exec(db->handle, "VACUUM", NULL, NULL, &err);
+  ERRCHECK
+  sqlite3_exec(db->handle, "ANALYZE", NULL, NULL, &err);
+  ERRCHECK
+
+  const int main_post_free_count = _get_pragma_val(db, "main.freelist_count");
+  const int data_post_free_count = _get_pragma_val(db, "data.freelist_count");
+
+  const guint64 calc_post_size = (main_post_free_count*main_page_size) + (data_post_free_count*data_page_size);
+  const gint64 bytes_freed = calc_pre_size - calc_post_size;
+
+  dt_print(DT_DEBUG_SQL, "[db maintenance] maintenance done, %" G_GINT64_FORMAT " bytes freed.\n", bytes_freed);
+
+  if(calc_post_size >= calc_pre_size)
+  {
+    dt_print(DT_DEBUG_SQL, "[db maintenance] paintenance problem. if no errors logged, it should work fine next time.\n");
+  }
+  else
+  {
+    
+  }
 }
+#undef ERRCHECK
 
 gboolean _ask_for_maintenance(const gboolean has_gui, const gboolean closing_time, const guint64 size)
 {
@@ -2724,22 +2991,6 @@ gboolean _ask_for_maintenance(const gboolean has_gui, const gboolean closing_tim
     g_free(size_info);
 
     return shall_perform_maintenance;
-}
-
-int _get_pragma_val(const struct dt_database_t *db, const char* pragma)
-{
-  gchar* query= g_strdup_printf("PRAGMA %s", pragma);
-  int val = -1;
-  sqlite3_stmt *stmt;
-  const int rc = sqlite3_prepare_v2(db->handle, query,-1, &stmt, NULL);
-  if(rc == SQLITE_OK && sqlite3_step(stmt) == SQLITE_ROW)
-  {
-    val = sqlite3_column_int(stmt, 0);
-  }
-  sqlite3_finalize(stmt);
-  g_free(query);
-
-  return val;
 }
 
 void dt_database_maybe_maintenance(const struct dt_database_t *db, const gboolean has_gui, const gboolean closing_time)
@@ -2812,7 +3063,6 @@ void dt_database_maybe_maintenance(const struct dt_database_t *db, const gboolea
     if(force_maintenance || _ask_for_maintenance(has_gui, closing_time, calc_size))
     {
       _dt_database_maintenance(db);
-      dt_print(DT_DEBUG_SQL, "[db maintenance] maintenance done, %" G_GUINT64_FORMAT " bytes freed.\n", calc_size);
     }
   }
 }

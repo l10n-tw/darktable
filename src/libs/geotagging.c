@@ -192,7 +192,6 @@ static gboolean _lib_geotagging_offset_key_press(GtkWidget *entry, GdkEventKey *
   switch(event->keyval)
   {
     case GDK_KEY_Escape:
-    case GDK_KEY_Tab:
     {
       // reset
       gchar *str = dt_conf_get_string("plugins/lighttable/geotagging/offset");
@@ -356,6 +355,7 @@ static void _lib_geotagging_calculate_offset_callback(GtkWidget *widget, dt_lib_
     g_strfreev(tokens);
   }
   gtk_widget_destroy(d->floating_window);
+  gtk_window_present(GTK_WINDOW(dt_ui_main_window(darktable.gui->ui)));
 }
 
 static gboolean _lib_geotagging_floating_key_press(GtkWidget *entry, GdkEventKey *event, dt_lib_module_t *self)
@@ -365,6 +365,7 @@ static gboolean _lib_geotagging_floating_key_press(GtkWidget *entry, GdkEventKey
   {
     case GDK_KEY_Escape:
       gtk_widget_destroy(d->floating_window);
+      gtk_window_present(GTK_WINDOW(dt_ui_main_window(darktable.gui->ui)));
       return TRUE;
 
     case GDK_KEY_Return:
@@ -798,12 +799,12 @@ void gui_init(dt_lib_module_t *self)
   g_free(str);
 
   GtkBox *button_box = GTK_BOX(gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 0));
-  button = dtgtk_button_new(dtgtk_cairo_paint_zoom, CPF_STYLE_FLAT | CPF_DO_NOT_USE_BORDER, NULL);
+  button = dtgtk_button_new(dtgtk_cairo_paint_zoom, CPF_STYLE_FLAT, NULL);
   gtk_widget_set_tooltip_text(button, _("calculate the time offset from an image"));
   gtk_box_pack_start(button_box, button, TRUE, TRUE, 0);
   g_signal_connect(G_OBJECT(button), "clicked", G_CALLBACK(_lib_geotagging_show_offset_window), self);
 
-  button = dtgtk_button_new(dtgtk_cairo_paint_check_mark, CPF_STYLE_FLAT | CPF_DO_NOT_USE_BORDER, NULL);
+  button = dtgtk_button_new(dtgtk_cairo_paint_check_mark, CPF_STYLE_FLAT, NULL);
   gtk_widget_set_tooltip_text(button, _("apply time offset to selected images"));
   gtk_box_pack_start(button_box, button, TRUE, TRUE, 0);
   g_signal_connect(G_OBJECT(button), "clicked", G_CALLBACK(_lib_geotagging_apply_offset_callback), self);

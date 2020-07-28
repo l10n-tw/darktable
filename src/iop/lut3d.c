@@ -26,8 +26,10 @@
 #include "common/file_location.h"
 #include "common/iop_profile.h"
 #include "develop/imageop.h"
+#include "develop/imageop_gui.h"
 #include "dtgtk/button.h"
 #include "gui/gtk.h"
+#include "gui/accelerators.h"
 #include "iop/iop_api.h"
 
 #include <gtk/gtk.h>
@@ -50,26 +52,26 @@ DT_MODULE_INTROSPECTION(3, dt_iop_lut3d_params_t)
 
 typedef enum dt_iop_lut3d_colorspace_t
 {
-  DT_IOP_SRGB = 0,
-  DT_IOP_ARGB,
-  DT_IOP_REC709,
-  DT_IOP_LIN_REC709,
-  DT_IOP_LIN_REC2020,
+  DT_IOP_SRGB = 0,    // $DESCRIPTION: "sRGB"
+  DT_IOP_ARGB,        // $DESCRIPTION: "Adobe RGB"
+  DT_IOP_REC709,      // $DESCRIPTION: "gamma rec709 RGB"
+  DT_IOP_LIN_REC709,  // $DESCRIPTION: "linear rec709 RGB"
+  DT_IOP_LIN_REC2020, // $DESCRIPTION: "linear rec2020 RGB"
 } dt_iop_lut3d_colorspace_t;
 
 typedef enum dt_iop_lut3d_interpolation_t
 {
-  DT_IOP_TETRAHEDRAL = 0,
-  DT_IOP_TRILINEAR = 1,
-  DT_IOP_PYRAMID = 2,
+  DT_IOP_TETRAHEDRAL = 0, // $DESCRIPTION: "tetrahedral"
+  DT_IOP_TRILINEAR = 1,   // $DESCRIPTION: "trilinear"
+  DT_IOP_PYRAMID = 2,     // $DESCRIPTION: "pyramid"
 } dt_iop_lut3d_interpolation_t;
 
 typedef struct dt_iop_lut3d_params_t
 {
   char filepath[DT_IOP_LUT3D_MAX_PATHNAME];
-  int colorspace;
-  int interpolation;
-  int nb_keypoints; // >0 indicates the presence of compressed lut
+  dt_iop_lut3d_colorspace_t colorspace; // $DEFAULT: DT_IOP_SRGB $DESCRIPTION: "application color space"
+  dt_iop_lut3d_interpolation_t interpolation; // $DEFAULT: DT_IOP_TETRAHEDRAL
+  int nb_keypoints; // $DEFAULT: 0 >0 indicates the presence of compressed lut
   char c_clut[DT_IOP_LUT3D_MAX_KEYPOINTS*2*3];
   char lutname[DT_IOP_LUT3D_MAX_LUTNAME];
 } dt_iop_lut3d_params_t;
@@ -143,6 +145,20 @@ int default_group()
 int default_colorspace(dt_iop_module_t *self, dt_dev_pixelpipe_t *pipe, dt_dev_pixelpipe_iop_t *piece)
 {
   return iop_cs_rgb;
+}
+
+void init_key_accels(dt_iop_module_so_t *self)
+{
+  dt_accel_register_combobox_iop(self, FALSE, NC_("accel", "application color space"));
+  dt_accel_register_combobox_iop(self, FALSE, NC_("accel", "interpolation"));
+}
+
+void connect_key_accels(dt_iop_module_t *self)
+{
+  dt_iop_lut3d_gui_data_t *g = (dt_iop_lut3d_gui_data_t *)self->gui_data;
+
+  dt_accel_connect_combobox_iop(self, "application color space", GTK_WIDGET(g->colorspace));
+  dt_accel_connect_combobox_iop(self, "interpolation ", GTK_WIDGET(g->interpolation ));
 }
 
 int legacy_params(dt_iop_module_t *self, const void *const old_params, const int old_version, void *new_params,
@@ -654,14 +670,15 @@ double dt_atof(const char *str)
 
 // return max 3 tokens from the line (separator = ' ' and token length = 50)
 // if nb tokens > 3, the 3rd one captures the last input
-uint8_t parse_cube_line(char *line, char *token)
+uint8_t parse_cube_line(char *line, char (*token)[50])
 {
-  uint8_t i, c;
-  i = c = 0;
-  char *t = token;
+  const int max_token_len = 50;
+  uint8_t i = 0;
+  uint8_t c = 0;
+  char *t = &token[0][0];
   char *l = line;
 
-  while (*l != 0 && i < 50)
+  while (*l != 0 && i < max_token_len)
   {
     if (*l == '#' || *l == '\n' || *l == '\r')
     { // end of useful part of the line
@@ -684,7 +701,7 @@ uint8_t parse_cube_line(char *line, char *token)
         *t = 0;
         c++;
         i = 0;
-        t = token + (50 * (c > 2 ? 2 : c));
+        t = &token[c > 2 ? 2 : c][0];
       }
     }
     else
@@ -702,6 +719,9 @@ uint8_t parse_cube_line(char *line, char *token)
       return c;
     }
   }
+  token[0][max_token_len - 1] = 0;
+  token[1][max_token_len - 1] = 0;
+  token[2][max_token_len - 1] = 0;
   return c;
 }
 
@@ -716,6 +736,7 @@ uint16_t calculate_clut_cube(const char *const filepath, float **clut)
   float *lclut = NULL;
   uint32_t i = 0;
   size_t buf_size = 0;
+  uint32_t out_of_range_nb = 0;
 
   if(!(cube_file = g_fopen(filepath, "r")))
   {
@@ -725,7 +746,7 @@ uint16_t calculate_clut_cube(const char *const filepath, float **clut)
   }
   while ((read = getline(&line, &len, cube_file)) != -1)
   {
-    const uint8_t nb_token = parse_cube_line(line, &token[0][0]);
+    const uint8_t nb_token = parse_cube_line(line, token);
     if (nb_token)
     {
       if (token[0][0] == 'T') continue;
@@ -782,7 +803,7 @@ uint16_t calculate_clut_cube(const char *const filepath, float **clut)
           return 0;
         }
       }
-      else if (nb_token == 3 && g_ascii_isdigit(token[0][0]))
+      else if (nb_token == 3)
       {
         if (!level)
         {
@@ -795,6 +816,16 @@ uint16_t calculate_clut_cube(const char *const filepath, float **clut)
         for (int j=0; j < 3; j++)
         {
           lclut[i+j] = dt_atof(token[j]);
+          if(isnan(lclut[i+j]))
+          {
+            fprintf(stderr, "[lut3d] error - invalid number line %d\n", (int)i/3);
+            dt_control_log(_("error - cube lut invalid number line %d"), (int)i/3);
+            free(line);
+            fclose(cube_file);
+            return 0;
+          }
+          else if(lclut[i+j] < 0.0 || lclut[i+j] > 1.0)
+            out_of_range_nb++;
         }
         i += 3;
       }
@@ -802,12 +833,19 @@ uint16_t calculate_clut_cube(const char *const filepath, float **clut)
   }
   if (i != buf_size || i == 0)
   {
-    fprintf(stderr, "[lut3d] error - cube lut lines number is not correct\n");
-    dt_control_log(_("error - cube lut lines number is not correct"));
+    fprintf(stderr, "[lut3d] error - cube lut lines number %d is not correct, should be %d\n",
+            (int)i/3, (int)buf_size/3);
+    dt_control_log(_("error - cube lut lines number %d is not correct, should be %d"),
+                   (int)i/3, (int)buf_size/3);
     dt_free_align(lclut);
     free(line);
     fclose(cube_file);
     return 0;
+  }
+  if(out_of_range_nb)
+  {
+    fprintf(stderr, "[lut3d] warning - %d out of range values [0,1]\n", out_of_range_nb);
+    dt_control_log(_("warning - cube lut %d out of range values [0,1]"), out_of_range_nb);
   }
   *clut = lclut;
   free(line);
@@ -836,7 +874,7 @@ uint16_t calculate_clut_3dl(const char *const filepath, float **clut)
   }
   while ((read = getline(&line, &len, cube_file)) != -1)
   {
-    const uint8_t nb_token = parse_cube_line(line, &token[0][0]);
+    const uint8_t nb_token = parse_cube_line(line, token);
     if (nb_token)
     {
       if (!level)
@@ -904,6 +942,8 @@ uint16_t calculate_clut_3dl(const char *const filepath, float **clut)
             max_value = value;
         }
         i++;
+        if (i * 3 > buf_size)
+          break;
       }
     }
   }
@@ -1078,43 +1118,6 @@ void filepath_set_unix_separator(char *filepath)
     if (filepath[i]=='\\') filepath[i] = '/';
 }
 
-void init(dt_iop_module_t *self)
-{
-  self->global_data = NULL;
-  self->params = calloc(1, sizeof(dt_iop_lut3d_params_t));
-  self->default_params = calloc(1, sizeof(dt_iop_lut3d_params_t));
-  self->default_enabled = 0;
-  self->params_size = sizeof(dt_iop_lut3d_params_t);
-  self->gui_data = NULL;
-  dt_iop_lut3d_params_t tmp = (dt_iop_lut3d_params_t)
-    { {0}, // no filename
-    DT_IOP_SRGB,
-    DT_IOP_TETRAHEDRAL,
-    0, // not compressed - nb_keypoints = 0
-    {0}, // no keypoints
-    {0} // no lut name
-    };
-
-  memcpy(self->params, &tmp, sizeof(dt_iop_lut3d_params_t));
-  memcpy(self->default_params, &tmp, sizeof(dt_iop_lut3d_params_t));
-
-#ifdef HAVE_GMIC
-  // make sure the cache dir exists
-  char *cache_dir = g_build_filename(g_get_user_cache_dir(), "gmic", NULL);
-  char *cache_gmic_dir = dt_loc_init_generic(cache_dir, NULL);
-  g_free(cache_dir);
-  g_free(cache_gmic_dir);
-#endif // HAVE_GMIC
-}
-
-void cleanup(dt_iop_module_t *self)
-{
-  free(self->params);
-  self->params = NULL;
-  free(self->default_params);
-  self->default_params = NULL;
-}
-
 void init_global(dt_iop_module_so_t *module)
 {
   const int program = 28; // rgbcurve.cl, from programs.conf
@@ -1125,6 +1128,14 @@ void init_global(dt_iop_module_so_t *module)
   gd->kernel_lut3d_trilinear = dt_opencl_create_kernel(program, "lut3d_trilinear");
   gd->kernel_lut3d_pyramid = dt_opencl_create_kernel(program, "lut3d_pyramid");
   gd->kernel_lut3d_none = dt_opencl_create_kernel(program, "lut3d_none");
+
+#ifdef HAVE_GMIC
+  // make sure the cache dir exists
+  char *cache_dir = g_build_filename(g_get_user_cache_dir(), "gmic", NULL);
+  char *cache_gmic_dir = dt_loc_init_generic(cache_dir, NULL);
+  g_free(cache_dir);
+  g_free(cache_gmic_dir);
+#endif // HAVE_GMIC
 }
 
 void cleanup_global(dt_iop_module_so_t *module)
@@ -1463,22 +1474,6 @@ static gboolean mouse_scroll(GtkWidget *view, GdkEventScroll *event, dt_lib_modu
 }
 #endif // HAVE_GMIC
 
-static void colorspace_callback(GtkWidget *widget, dt_iop_module_t *self)
-{
-  if(darktable.gui->reset) return;
-  dt_iop_lut3d_params_t *p = (dt_iop_lut3d_params_t *)self->params;
-  p->colorspace = dt_bauhaus_combobox_get(widget);
-  dt_dev_add_history_item(darktable.develop, self, TRUE);
-}
-
-static void interpolation_callback(GtkWidget *widget, dt_iop_module_t *self)
-{
-  if(darktable.gui->reset) return;
-  dt_iop_lut3d_params_t *p = (dt_iop_lut3d_params_t *)self->params;
-  p->interpolation = dt_bauhaus_combobox_get(widget);
-  dt_dev_add_history_item(darktable.develop, self, TRUE);
-}
-
 // remove root lut folder from path
 static void remove_root_from_path(const char *const lutfolder, char *const filepath)
 {
@@ -1691,11 +1686,10 @@ void gui_init(dt_iop_module_t *self)
   dt_iop_lut3d_gui_data_t *g = (dt_iop_lut3d_gui_data_t *)self->gui_data;
 
   self->widget = gtk_box_new(GTK_ORIENTATION_VERTICAL, DT_BAUHAUS_SPACE);
-  dt_gui_add_help_link(self->widget, dt_get_help_url(self->op));
 
   g->hbox = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, DT_PIXEL_APPLY_DPI(8));
-  GtkWidget *button = dtgtk_button_new(dtgtk_cairo_paint_directory, CPF_DO_NOT_USE_BORDER, NULL);
-  gtk_widget_set_size_request(button, DT_PIXEL_APPLY_DPI(18), DT_PIXEL_APPLY_DPI(18));
+  GtkWidget *button = dtgtk_button_new(dtgtk_cairo_paint_directory, CPF_NONE, NULL);
+  gtk_widget_set_name(button, "non-flat");
 #ifdef HAVE_GMIC
   gtk_widget_set_tooltip_text(button, _("select a png (haldclut)"
       ", a cube, a 3dl or a gmz (compressed lut) file "
@@ -1758,25 +1752,11 @@ void gui_init(dt_iop_module_t *self)
   gtk_box_pack_start((GtkBox *)self->widget, sw , TRUE, TRUE, 0);
 #endif // HAVE_GMIC
 
-  g->colorspace = dt_bauhaus_combobox_new(self);
-  dt_bauhaus_widget_set_label(g->colorspace, NULL, _("application color space"));
-  dt_bauhaus_combobox_add(g->colorspace, _("sRGB"));
-  dt_bauhaus_combobox_add(g->colorspace, _("Adobe RGB"));
-  dt_bauhaus_combobox_add(g->colorspace, _("gamma rec709 RGB"));
-  dt_bauhaus_combobox_add(g->colorspace, _("linear rec709 RGB"));
-  dt_bauhaus_combobox_add(g->colorspace, _("linear rec2020 RGB"));
-  gtk_box_pack_start(GTK_BOX(self->widget), GTK_WIDGET(g->colorspace) , TRUE, TRUE, 0);
+  g->colorspace = dt_bauhaus_combobox_from_params(self, "colorspace");
   gtk_widget_set_tooltip_text(g->colorspace, _("select the color space in which the LUT has to be applied"));
-  g_signal_connect(G_OBJECT(g->colorspace), "value-changed", G_CALLBACK(colorspace_callback), self);
 
-  g->interpolation = dt_bauhaus_combobox_new(self);
-  dt_bauhaus_widget_set_label(g->interpolation, NULL, _("interpolation"));
-  dt_bauhaus_combobox_add(g->interpolation, _("tetrahedral"));
-  dt_bauhaus_combobox_add(g->interpolation, _("trilinear"));
-  dt_bauhaus_combobox_add(g->interpolation, _("pyramid"));
-  gtk_box_pack_start(GTK_BOX(self->widget), GTK_WIDGET(g->interpolation) , TRUE, TRUE, 0);
+  g->interpolation = dt_bauhaus_combobox_from_params(self, N_("interpolation"));
   gtk_widget_set_tooltip_text(g->interpolation, _("select the interpolation method"));
-  g_signal_connect(G_OBJECT(g->interpolation), "value-changed", G_CALLBACK(interpolation_callback), self);
 
   dt_control_signal_connect(darktable.signals, DT_SIGNAL_DEVELOP_MODULE_MOVED,
                             G_CALLBACK(module_moved_callback), self);

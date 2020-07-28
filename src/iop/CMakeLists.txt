@@ -1,4 +1,4 @@
-include_directories("${CMAKE_CURRENT_BINARY_DIR}/../" "${CMAKE_CURRENT_SOURCE_DIR}")
+include_directories("${CMAKE_CURRENT_BINARY_DIR}/../")
 
 include(manage-symbol-visibility)
 
@@ -23,7 +23,7 @@ macro (add_iop _lib _src)
   set(_input ${CMAKE_CURRENT_SOURCE_DIR}/${_src})
   set(_output ${CMAKE_CURRENT_BINARY_DIR}/introspection_${_src}) # keep ${_src} in the end to keep the file extension (c vs. cc)
   add_custom_command(
-    DEPENDS ${_input} ${CMAKE_SOURCE_DIR}/src/common/introspection.h
+    DEPENDS ${_input} ${CMAKE_SOURCE_DIR}/src/common/introspection.h ${CMAKE_SOURCE_DIR}/tools/introspection/ast.pm
     OUTPUT ${_output}
     WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}/tools/introspection/
     COMMAND ${perl_BIN} ${CMAKE_SOURCE_DIR}/tools/introspection/parser.pl ${CMAKE_CURRENT_SOURCE_DIR}/../ ${_input} ${_output}
@@ -143,13 +143,13 @@ add_iop(toneequal "toneequal.c" DEFAULT_VISIBLE)
 add_iop(filmicrgb "filmicrgb.c")
 add_iop(negadoctor "negadoctor.c")
 
-if(RSVG2_FOUND)
+if(Rsvg2_FOUND)
   add_iop(watermark "watermark.c")
-endif(RSVG2_FOUND)
+endif(Rsvg2_FOUND)
 
-if(LENSFUN_FOUND)
+if(LensFun_FOUND)
   add_iop(lens "lens.cc" DEFAULT_VISIBLE)
-endif(LENSFUN_FOUND)
+endif(LensFun_FOUND)
 
 # fix for Mac when OpenMP is only available in C compiler
 if(APPLE)

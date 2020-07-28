@@ -28,6 +28,7 @@
 #include "control/conf.h"
 #include "control/control.h"
 #include "develop/develop.h"
+#include "develop/imageop.h"
 #include "gui/accelerators.h"
 #include "gui/draw.h"
 #include "gui/gtk.h"
@@ -56,6 +57,11 @@ void dt_control_init(dt_control_t *s)
   s->log_busy = 0;
   s->log_message_timeout_id = 0;
   dt_pthread_mutex_init(&(s->log_mutex), NULL);
+
+  s->toast_pos = s->toast_ack = 0;
+  s->toast_busy = 0;
+  s->toast_message_timeout_id = 0;
+  dt_pthread_mutex_init(&(s->toast_mutex), NULL);
 
   pthread_cond_init(&s->cond, NULL);
   dt_pthread_mutex_init(&s->cond_mutex, NULL);
@@ -173,6 +179,7 @@ void dt_control_cleanup(dt_control_t *s)
   dt_pthread_mutex_destroy(&s->queue_mutex);
   dt_pthread_mutex_destroy(&s->cond_mutex);
   dt_pthread_mutex_destroy(&s->log_mutex);
+  dt_pthread_mutex_destroy(&s->toast_mutex);
   dt_pthread_mutex_destroy(&s->res_mutex);
   dt_pthread_mutex_destroy(&s->run_mutex);
   dt_pthread_mutex_destroy(&s->progress_system.mutex);
@@ -247,40 +254,8 @@ void *dt_control_expose(void *voidptr)
   dt_view_manager_expose(darktable.view_manager, cr, width, height, pointerx, pointery);
   cairo_restore(cr);
 
-  // draw log message, if any
-  dt_pthread_mutex_lock(&darktable.control->log_mutex);
-  if(darktable.control->log_ack != darktable.control->log_pos)
-  {
-    PangoRectangle ink;
-    PangoLayout *layout;
-    PangoFontDescription *desc = pango_font_description_copy_static(darktable.bauhaus->pango_font_desc);
-    const float fontsize = DT_PIXEL_APPLY_DPI(14);
-    pango_font_description_set_absolute_size(desc, fontsize * PANGO_SCALE);
-    pango_font_description_set_weight(desc, PANGO_WEIGHT_BOLD);
-    layout = pango_cairo_create_layout(cr);
-    pango_layout_set_font_description(layout, desc);
-    pango_layout_set_text(layout, darktable.control->log_message[darktable.control->log_ack], -1);
-    pango_layout_get_pixel_extents(layout, &ink, NULL);
-    const float pad = DT_PIXEL_APPLY_DPI(10.0f), xc = width / 2.0;
-    const float yc = height * 0.85 + DT_PIXEL_APPLY_DPI(10), wd = MIN(pad + ink.width * .5f, width * .5f - pad);
-    float rad = DT_PIXEL_APPLY_DPI(14);
-    // ellipsze the text if it does not fit on the screen
-    pango_layout_set_ellipsize(layout, PANGO_ELLIPSIZE_MIDDLE);
-    pango_layout_set_width(layout, (int)(PANGO_SCALE * wd * 2.0f));
-    cairo_move_to(cr, xc - wd, yc + rad);
-    cairo_arc(cr, xc - wd, yc, rad, M_PI / 2.0, 3.0 / 2.0 * M_PI);
-    cairo_line_to(cr, xc + wd, yc - rad);
-    cairo_arc(cr, xc + wd, yc, rad, 3.0 * M_PI / 2.0, M_PI / 2.0);
-    cairo_line_to(cr, xc - wd, yc + rad);
-    dt_gui_gtk_set_source_rgb(cr, DT_GUI_COLOR_LOG_BG);
-    cairo_fill(cr);
-    dt_gui_gtk_set_source_rgb(cr, DT_GUI_COLOR_LOG_FG);
-    cairo_move_to(cr, xc - wd + pad, yc - ink.height * 0.5);
-    pango_cairo_show_layout(cr, layout);
-    pango_font_description_free(desc);
-    g_object_unref(layout);
-  }
   // draw busy indicator
+  dt_pthread_mutex_lock(&darktable.control->log_mutex);
   if(darktable.control->log_busy > 0)
   {
     PangoRectangle ink;
@@ -409,10 +384,20 @@ static gboolean _dt_ctl_log_message_timeout_callback(gpointer data)
     darktable.control->log_ack = (darktable.control->log_ack + 1) % DT_CTL_LOG_SIZE;
   darktable.control->log_message_timeout_id = 0;
   dt_pthread_mutex_unlock(&darktable.control->log_mutex);
-  dt_control_queue_redraw_center();
+  dt_control_log_redraw();
   return FALSE;
 }
 
+static gboolean _dt_ctl_toast_message_timeout_callback(gpointer data)
+{
+  dt_pthread_mutex_lock(&darktable.control->toast_mutex);
+  if(darktable.control->toast_ack != darktable.control->toast_pos)
+    darktable.control->toast_ack = (darktable.control->toast_ack + 1) % DT_CTL_TOAST_SIZE;
+  darktable.control->toast_message_timeout_id = 0;
+  dt_pthread_mutex_unlock(&darktable.control->toast_mutex);
+  dt_control_toast_redraw();
+  return FALSE;
+}
 
 void dt_control_button_pressed(double x, double y, double pressure, int which, int type, uint32_t state)
 {
@@ -443,13 +428,30 @@ void dt_control_button_pressed(double x, double y, double pressure, int which, i
     }
   dt_pthread_mutex_unlock(&darktable.control->log_mutex);
 
+  // ack toast message:
+  dt_pthread_mutex_lock(&darktable.control->toast_mutex);
+  if(darktable.control->toast_ack != darktable.control->toast_pos)
+    if(which == 1 /*&& x > xc - 10 && x < xc + 10*/ && y > yc - 10 && y < yc + 10)
+    {
+      if(darktable.control->toast_message_timeout_id)
+      {
+        g_source_remove(darktable.control->toast_message_timeout_id);
+        darktable.control->toast_message_timeout_id = 0;
+      }
+      darktable.control->toast_ack = (darktable.control->toast_ack + 1) % DT_CTL_TOAST_SIZE;
+      dt_pthread_mutex_unlock(&darktable.control->toast_mutex);
+      return;
+    }
+  dt_pthread_mutex_unlock(&darktable.control->toast_mutex);
+
   if(!dt_view_manager_button_pressed(darktable.view_manager, x, y, pressure, which, type, state))
     if(type == GDK_2BUTTON_PRESS && which == 1) dt_ctl_switch_mode();
 }
 
 static gboolean _redraw_center(gpointer user_data)
 {
-  dt_control_queue_redraw_center();
+  dt_control_log_redraw();
+  dt_control_toast_redraw();
   return FALSE; // don't call this again
 }
 
@@ -470,6 +472,23 @@ void dt_control_log(const char *msg, ...)
   g_idle_add(_redraw_center, 0);
 }
 
+void dt_toast_log(const char *msg, ...)
+{
+  dt_pthread_mutex_lock(&darktable.control->toast_mutex);
+  va_list ap;
+  va_start(ap, msg);
+  vsnprintf(darktable.control->toast_message[darktable.control->toast_pos], DT_CTL_TOAST_MSG_SIZE, msg, ap);
+  va_end(ap);
+  if(darktable.control->toast_message_timeout_id) g_source_remove(darktable.control->toast_message_timeout_id);
+  darktable.control->toast_ack = darktable.control->toast_pos;
+  darktable.control->toast_pos = (darktable.control->toast_pos + 1) % DT_CTL_TOAST_SIZE;
+  darktable.control->toast_message_timeout_id
+      = g_timeout_add(DT_CTL_TOAST_TIMEOUT, _dt_ctl_toast_message_timeout_callback, NULL);
+  dt_pthread_mutex_unlock(&darktable.control->toast_mutex);
+  // redraw center later in gui thread:
+  g_idle_add(_redraw_center, 0);
+}
+
 static void dt_control_log_ack_all()
 {
   dt_pthread_mutex_lock(&darktable.control->log_mutex);
@@ -485,11 +504,27 @@ void dt_control_log_busy_enter()
   dt_pthread_mutex_unlock(&darktable.control->log_mutex);
 }
 
+void dt_control_toast_busy_enter()
+{
+  dt_pthread_mutex_lock(&darktable.control->toast_mutex);
+  darktable.control->toast_busy++;
+  dt_pthread_mutex_unlock(&darktable.control->toast_mutex);
+}
+
 void dt_control_log_busy_leave()
 {
   dt_pthread_mutex_lock(&darktable.control->log_mutex);
   darktable.control->log_busy--;
   dt_pthread_mutex_unlock(&darktable.control->log_mutex);
+  /* lets redraw */
+  dt_control_queue_redraw_center();
+}
+
+void dt_control_toast_busy_leave()
+{
+  dt_pthread_mutex_lock(&darktable.control->toast_mutex);
+  darktable.control->toast_busy--;
+  dt_pthread_mutex_unlock(&darktable.control->toast_mutex);
   /* lets redraw */
   dt_control_queue_redraw_center();
 }
@@ -507,6 +542,16 @@ void dt_control_queue_redraw_center()
 void dt_control_navigation_redraw()
 {
   dt_control_signal_raise(darktable.signals, DT_SIGNAL_CONTROL_NAVIGATION_REDRAW);
+}
+
+void dt_control_log_redraw()
+{
+  dt_control_signal_raise(darktable.signals, DT_SIGNAL_CONTROL_LOG_REDRAW);
+}
+
+void dt_control_toast_redraw()
+{
+  dt_control_signal_raise(darktable.signals, DT_SIGNAL_CONTROL_TOAST_REDRAW);
 }
 
 static gboolean _gtk_widget_queue_draw(gpointer user_data)
@@ -668,9 +713,11 @@ int dt_control_key_pressed_override(guint key, guint state)
   if(darktable.view_manager->current_view->dynamic_accel_current)
   {
     gchar **vals = g_strsplit_set(darktable.view_manager->current_view->dynamic_accel_current->translated_path, "/", -1);
+    dt_iop_module_so_t *mod_so = darktable.view_manager->current_view->dynamic_accel_current->mod_so;
+    dt_iop_module_t *mod = dt_iop_get_module_accel_curr(mod_so);
     if(vals[0] && vals[1] && vals[2] && vals[3])
     {
-      gchar *txt = dt_util_dstrcat(NULL, _("scroll to change <b>%s</b> of %s module"), vals[3], vals[2]);
+      gchar *txt = dt_util_dstrcat(NULL, _("scroll to change <b>%s</b> of %s %s module"), vals[3], vals[2], mod->multi_name);
       dt_control_hinter_message(darktable.control, txt);
       g_free(txt);
     }
@@ -690,24 +737,10 @@ int dt_control_key_pressed_override(guint key, guint state)
     gtk_widget_queue_draw(dt_ui_center(darktable.gui->ui));
     return 1;
   }
-  else if(key == accels->global_header.accel_key && state == accels->global_header.accel_mods)
-  {
-    /* toggle panel viewstate */
-    dt_ui_toggle_header(darktable.gui->ui);
-    gtk_widget_queue_draw(dt_ui_center(darktable.gui->ui));
-    return 1;
-  }
   // add an option to allow skip mouse events while editing masks
   else if(key == accels->darkroom_skip_mouse_events.accel_key && state == accels->darkroom_skip_mouse_events.accel_mods)
   {
     darktable.develop->darkroom_skip_mouse_events = TRUE;
-    return 1;
-  }
-  // set focus to the search module text box
-  else if(key == accels->darkroom_search_modules_focus.accel_key
-          && state == accels->darkroom_search_modules_focus.accel_mods)
-  {
-    dt_dev_modulegroups_search_text_focus(darktable.develop);
     return 1;
   }
   // show/hide the accels window

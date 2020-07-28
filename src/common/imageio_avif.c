@@ -106,6 +106,9 @@ dt_imageio_retval_t dt_imageio_open_avif(dt_image_t *img,
   dt_imageio_retval_t ret;
   avifROData raw = AVIF_DATA_EMPTY;
   avifImage *avif = NULL;
+  avifRGBImage rgb = {
+      .format = AVIF_RGB_FORMAT_RGB,
+  };
   avifDecoder *decoder = NULL;
   avifResult result;
 
@@ -157,7 +160,14 @@ dt_imageio_retval_t dt_imageio_open_avif(dt_image_t *img,
 
   avif = decoder->image;
 
-  result = avifImageYUVToRGB(avif);
+  /* This will set the depth from the avif */
+  avifRGBImageSetDefaults(&rgb, avif);
+
+  rgb.format = AVIF_RGB_FORMAT_RGB;
+
+  avifRGBImageAllocatePixels(&rgb);
+
+  result = avifImageYUVToRGB(avif, &rgb);
   if (result != AVIF_RESULT_OK) {
     dt_print(DT_DEBUG_IMAGEIO,
              "Failed to convert AVIF image [%s] from YUV to RGB: %s\n",
@@ -166,10 +176,10 @@ dt_imageio_retval_t dt_imageio_open_avif(dt_image_t *img,
     goto out;
   }
 
-  const size_t width = avif->width;
-  const size_t height = avif->height;
+  const size_t width = rgb.width;
+  const size_t height = rgb.height;
   /* If `> 8', all plane ptrs are 'uint16_t *' */
-  const size_t bit_depth = avif->depth;
+  const size_t bit_depth = rgb.depth;
 
   /* Initialize cached image buffer */
   img->width = width;
@@ -194,33 +204,31 @@ dt_imageio_retval_t dt_imageio_open_avif(dt_image_t *img,
 
   const float max_channel_f = (float)((1 << bit_depth) - 1);
 
-  const size_t R_rowbytes = avif->rgbRowBytes[AVIF_CHAN_R];
-  const size_t G_rowbytes = avif->rgbRowBytes[AVIF_CHAN_G];
-  const size_t B_rowbytes = avif->rgbRowBytes[AVIF_CHAN_B];
+  const size_t rowbytes = rgb.rowBytes;
 
-  const uint8_t *const restrict R_plane8 = (const uint8_t *)avif->rgbPlanes[AVIF_CHAN_R];
-  const uint8_t *const restrict G_plane8 = (const uint8_t *)avif->rgbPlanes[AVIF_CHAN_G];
-  const uint8_t *const restrict B_plane8 = (const uint8_t *)avif->rgbPlanes[AVIF_CHAN_B];
+  const uint8_t *const restrict in = (const uint8_t *)rgb.pixels;
 
   switch (bit_depth) {
   case 12:
   case 10: {
 #ifdef _OPENMP
 #pragma omp parallel for simd default(none) \
-  dt_omp_firstprivate(mipbuf, width, height, R_plane8, G_plane8, B_plane8, \
-                      R_rowbytes, G_rowbytes, B_rowbytes, max_channel_f) \
+  dt_omp_firstprivate(mipbuf, width, height, in, rowbytes, max_channel_f) \
   schedule(simd:static) \
   collapse(2)
 #endif
-    for (size_t y = 0; y < height; y++) {
-      for (size_t x = 0; x < width; x++) {
-          float *pixel = &mipbuf[(size_t)4 * ((y * width) + x)];
+    for (size_t y = 0; y < height; y++)
+    {
+      for (size_t x = 0; x < width; x++)
+      {
+          uint16_t *in_pixel = (uint16_t *)&in[(y * rowbytes) + (3 * sizeof(uint16_t) * x)];
+          float *out_pixel = &mipbuf[(size_t)4 * ((y * width) + x)];
 
           /* max_channel_f is 255.0f for 8bit */
-          pixel[0] = ((float)*((uint16_t *)&R_plane8[(x * 2) + (y * R_rowbytes)])) * (1.0f / max_channel_f);
-          pixel[1] = ((float)*((uint16_t *)&G_plane8[(x * 2) + (y * G_rowbytes)])) * (1.0f / max_channel_f);
-          pixel[2] = ((float)*((uint16_t *)&B_plane8[(x * 2) + (y * B_rowbytes)])) * (1.0f / max_channel_f);
-          pixel[3] = 0.0f; /* alpha */
+          out_pixel[0] = ((float)in_pixel[0]) * (1.0f / max_channel_f);
+          out_pixel[1] = ((float)in_pixel[1]) * (1.0f / max_channel_f);
+          out_pixel[2] = ((float)in_pixel[2]) * (1.0f / max_channel_f);
+          out_pixel[3] = 0.0f; /* alpha */
       }
     }
     break;
@@ -228,20 +236,22 @@ dt_imageio_retval_t dt_imageio_open_avif(dt_image_t *img,
   case 8: {
 #ifdef _OPENMP
 #pragma omp parallel for simd default(none) \
-  dt_omp_firstprivate(mipbuf, width, height, R_plane8, G_plane8, B_plane8, \
-                      R_rowbytes, G_rowbytes, B_rowbytes, max_channel_f) \
+  dt_omp_firstprivate(mipbuf, width, height, in, rowbytes, max_channel_f) \
   schedule(simd:static) \
   collapse(2)
 #endif
-    for (size_t y = 0; y < height; y++) {
-      for (size_t x = 0; x < width; x++) {
-          float *pixel = &mipbuf[(size_t)4 * ((y * width) + x)];
+    for (size_t y = 0; y < height; y++)
+    {
+      for (size_t x = 0; x < width; x++)
+      {
+          uint8_t *in_pixel = (uint8_t *)&in[(y * rowbytes) + (3 * sizeof(uint8_t) * x)];
+          float *out_pixel = &mipbuf[(size_t)4 * ((y * width) + x)];
 
           /* max_channel_f is 255.0f for 8bit */
-          pixel[0] = ((float)R_plane8[x + (y * R_rowbytes)]) * (1.0f / max_channel_f);
-          pixel[1] = ((float)G_plane8[x + (y * G_rowbytes)]) * (1.0f / max_channel_f);
-          pixel[2] = ((float)B_plane8[x + (y * B_rowbytes)]) * (1.0f / max_channel_f);
-          pixel[3] = 0.0f; /* alpha */
+          out_pixel[0] = (float)(in_pixel[0]) * (1.0f / max_channel_f);
+          out_pixel[1] = (float)(in_pixel[1]) * (1.0f / max_channel_f);
+          out_pixel[2] = (float)(in_pixel[2]) * (1.0f / max_channel_f);
+          out_pixel[3] = 0.0f; /* alpha */
       }
     }
     break;
@@ -256,6 +266,7 @@ dt_imageio_retval_t dt_imageio_open_avif(dt_image_t *img,
 
   ret = DT_IMAGEIO_OK;
 out:
+  avifRGBImageFreePixels(&rgb);
   avifDecoderDestroy(decoder);
   avifFree((void *)raw.data); /* discard const */
 
@@ -317,6 +328,199 @@ dt_imageio_retval_t dt_imageio_avif_read_color_profile(const char *filename, str
     goto out;
   }
 
+#if AVIF_VERSION >= 800
+  if (decoder->image->icc.size > 0) {
+    avifRWData icc = decoder->image->icc;
+
+    if (icc.data == NULL || icc.size == 0) {
+      ret = DT_IMAGEIO_FILE_CORRUPTED;
+      goto out;
+    }
+
+    uint8_t *data = (uint8_t *)g_malloc0(icc.size * sizeof(uint8_t));
+    if (data == NULL) {
+      dt_print(DT_DEBUG_IMAGEIO,
+               "Failed to allocate ICC buffer for AVIF image [%s]\n",
+               filename);
+      ret = DT_IMAGEIO_FILE_CORRUPTED;
+      goto out;
+    }
+    memcpy(data, icc.data, icc.size);
+
+    cp->icc_profile_size = icc.size;
+    cp->icc_profile = data;
+  } else {
+    switch(decoder->image->colorPrimaries) {
+    /*
+     * BT709
+     */
+    case AVIF_COLOR_PRIMARIES_BT709:
+
+      switch (decoder->image->transferCharacteristics) {
+      /*
+       * SRGB
+       */
+      case AVIF_TRANSFER_CHARACTERISTICS_SRGB:
+
+        switch (decoder->image->matrixCoefficients) {
+        case AVIF_MATRIX_COEFFICIENTS_BT709:
+        case AVIF_MATRIX_COEFFICIENTS_CHROMA_DERIVED_NCL:
+          cp->type = DT_COLORSPACE_SRGB;
+          break;
+        default:
+          break;
+        }
+
+        break; /* SRGB */
+
+      /*
+       * GAMMA22 BT709
+       */
+      case AVIF_TRANSFER_CHARACTERISTICS_BT470M:
+
+        switch (decoder->image->matrixCoefficients) {
+        case AVIF_MATRIX_COEFFICIENTS_BT709:
+        case AVIF_MATRIX_COEFFICIENTS_CHROMA_DERIVED_NCL:
+          cp->type = DT_COLORSPACE_REC709;
+          break;
+        default:
+          break;
+        }
+
+        break; /* GAMMA22 BT709 */
+
+      /*
+       * LINEAR BT709
+       */
+      case AVIF_TRANSFER_CHARACTERISTICS_LINEAR:
+
+        switch (decoder->image->matrixCoefficients) {
+        case AVIF_MATRIX_COEFFICIENTS_BT709:
+        case AVIF_MATRIX_COEFFICIENTS_CHROMA_DERIVED_NCL:
+          cp->type = DT_COLORSPACE_LIN_REC709;
+          break;
+        default:
+          break;
+        }
+
+        break; /* LINEAR BT709 */
+
+      default:
+        break;
+      }
+
+      break; /* BT709 */
+
+    /*
+     * BT2020
+     */
+    case AVIF_COLOR_PRIMARIES_BT2020:
+
+      switch (decoder->image->transferCharacteristics) {
+      /*
+       * LINEAR BT2020
+       */
+      case AVIF_TRANSFER_CHARACTERISTICS_LINEAR:
+
+        switch (decoder->image->matrixCoefficients) {
+        case AVIF_MATRIX_COEFFICIENTS_BT2020_NCL:
+        case AVIF_MATRIX_COEFFICIENTS_CHROMA_DERIVED_NCL:
+          cp->type = DT_COLORSPACE_LIN_REC2020;
+          break;
+        default:
+          break;
+        }
+
+        break; /* LINEAR BT2020 */
+
+      /*
+       * PQ BT2020
+       */
+      case AVIF_TRANSFER_CHARACTERISTICS_SMPTE2084:
+
+        switch (decoder->image->matrixCoefficients) {
+        case AVIF_MATRIX_COEFFICIENTS_BT2020_NCL:
+        case AVIF_MATRIX_COEFFICIENTS_CHROMA_DERIVED_NCL:
+          cp->type = DT_COLORSPACE_PQ_REC2020;
+          break;
+        default:
+          break;
+        }
+
+        break; /* PQ BT2020 */
+
+      /*
+       * HLG BT2020
+       */
+      case AVIF_TRANSFER_CHARACTERISTICS_HLG:
+
+        switch (decoder->image->matrixCoefficients) {
+        case AVIF_MATRIX_COEFFICIENTS_BT2020_NCL:
+        case AVIF_MATRIX_COEFFICIENTS_CHROMA_DERIVED_NCL:
+          cp->type = DT_COLORSPACE_HLG_REC2020;
+          break;
+        default:
+          break;
+        }
+
+        break; /* HLG BT2020 */
+
+      default:
+        break;
+      }
+
+      break; /* BT2020 */
+
+    /*
+     * P3
+     */
+    case AVIF_COLOR_PRIMARIES_SMPTE432:
+
+      switch (decoder->image->transferCharacteristics) {
+      /*
+       * PQ P3
+       */
+      case AVIF_TRANSFER_CHARACTERISTICS_SMPTE2084:
+
+        switch (decoder->image->matrixCoefficients) {
+        case AVIF_MATRIX_COEFFICIENTS_CHROMA_DERIVED_NCL:
+          cp->type = DT_COLORSPACE_PQ_P3;
+          break;
+        default:
+          break;
+        }
+
+        break; /* PQ P3 */
+
+      /*
+       * HLG P3
+       */
+      case AVIF_TRANSFER_CHARACTERISTICS_HLG:
+
+        switch (decoder->image->matrixCoefficients) {
+        case AVIF_MATRIX_COEFFICIENTS_CHROMA_DERIVED_NCL:
+          cp->type = DT_COLORSPACE_PQ_P3;
+          break;
+        default:
+          break;
+        }
+
+        break; /* HLG P3 */
+
+      default:
+        break;
+      }
+
+      break; /* P3 */
+
+    default:
+      dt_print(DT_DEBUG_IMAGEIO,
+               "Unsupported color profile for %s\n",
+               filename);
+      break;
+    }
+  }
+#else /* AVIF_VERSION 700 */
   switch(decoder->image->profileFormat) {
   case AVIF_PROFILE_FORMAT_NCLX: {
     avifNclxColorProfile nclx = decoder->image->nclx;
@@ -334,7 +538,7 @@ dt_imageio_retval_t dt_imageio_avif_read_color_profile(const char *filename, str
       case AVIF_NCLX_TRANSFER_CHARACTERISTICS_SRGB:
 
         switch (nclx.matrixCoefficients) {
-        case AVIF_NCLX_MATRIX_COEFFICIENTS_SRGB:
+        case AVIF_NCLX_MATRIX_COEFFICIENTS_BT709:
         case AVIF_NCLX_MATRIX_COEFFICIENTS_CHROMA_DERIVED_NCL:
           cp->type = DT_COLORSPACE_SRGB;
           break;
@@ -347,7 +551,7 @@ dt_imageio_retval_t dt_imageio_avif_read_color_profile(const char *filename, str
       /*
        * GAMMA22 BT709
        */
-      case AVIF_NCLX_TRANSFER_CHARACTERISTICS_GAMMA22:
+      case AVIF_NCLX_TRANSFER_CHARACTERISTICS_BT470M:
 
         switch (nclx.matrixCoefficients) {
         case AVIF_NCLX_MATRIX_COEFFICIENTS_BT709:
@@ -407,7 +611,7 @@ dt_imageio_retval_t dt_imageio_avif_read_color_profile(const char *filename, str
       /*
        * PQ BT2020
        */
-      case AVIF_NCLX_TRANSFER_CHARACTERISTICS_BT2100_PQ:
+      case AVIF_NCLX_TRANSFER_CHARACTERISTICS_SMPTE2084:
 
         switch (nclx.matrixCoefficients) {
         case AVIF_NCLX_MATRIX_COEFFICIENTS_BT2020_NCL:
@@ -423,7 +627,7 @@ dt_imageio_retval_t dt_imageio_avif_read_color_profile(const char *filename, str
       /*
        * HLG BT2020
        */
-      case AVIF_NCLX_TRANSFER_CHARACTERISTICS_BT2100_HLG:
+      case AVIF_NCLX_TRANSFER_CHARACTERISTICS_HLG:
 
         switch (nclx.matrixCoefficients) {
         case AVIF_NCLX_MATRIX_COEFFICIENTS_BT2020_NCL:
@@ -445,13 +649,13 @@ dt_imageio_retval_t dt_imageio_avif_read_color_profile(const char *filename, str
     /*
      * P3
      */
-    case AVIF_NCLX_COLOUR_PRIMARIES_P3:
+    case AVIF_NCLX_COLOUR_PRIMARIES_SMPTE432:
 
       switch (nclx.transferCharacteristics) {
       /*
        * PQ P3
        */
-      case AVIF_NCLX_TRANSFER_CHARACTERISTICS_BT2100_PQ:
+      case AVIF_NCLX_TRANSFER_CHARACTERISTICS_SMPTE2084:
 
         switch (nclx.matrixCoefficients) {
         case AVIF_NCLX_MATRIX_COEFFICIENTS_CHROMA_DERIVED_NCL:
@@ -466,7 +670,7 @@ dt_imageio_retval_t dt_imageio_avif_read_color_profile(const char *filename, str
       /*
        * HLG P3
        */
-      case AVIF_NCLX_TRANSFER_CHARACTERISTICS_BT2100_HLG:
+      case AVIF_NCLX_TRANSFER_CHARACTERISTICS_HLG:
 
         switch (nclx.matrixCoefficients) {
         case AVIF_NCLX_MATRIX_COEFFICIENTS_CHROMA_DERIVED_NCL:
@@ -518,6 +722,7 @@ dt_imageio_retval_t dt_imageio_avif_read_color_profile(const char *filename, str
   case AVIF_PROFILE_FORMAT_NONE:
     break;
   }
+#endif /* AVIF_VERSION */
 
   ret = DT_IMAGEIO_OK;
 out:

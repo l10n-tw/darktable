@@ -133,9 +133,9 @@ typedef enum dt_colorlabels_actions_t
 
 
 
-static void _colorlabels_execute(GList *imgs, const int labels, GList **undo, const gboolean undo_on, const int action)
+static void _colorlabels_execute(const GList *imgs, const int labels, GList **undo, const gboolean undo_on, const int action)
 {
-  GList *images = imgs;
+  GList *images = (GList *)imgs;
   while(images)
   {
     const int image_id = GPOINTER_TO_INT(images->data);
@@ -172,17 +172,13 @@ static void _colorlabels_execute(GList *imgs, const int labels, GList **undo, co
   }
 }
 
-void dt_colorlabels_set_labels(const int imgid, const int labels, const gboolean clear_on, const gboolean undo_on, const gboolean group_on)
+void dt_colorlabels_set_labels(const GList *img, const int labels, const gboolean clear_on,
+                               const gboolean undo_on)
 {
-  GList *imgs = NULL;
-  if(imgid == -1)
-    imgs = dt_collection_get_selected(darktable.collection, -1);
-  else
-    imgs = g_list_append(imgs, GINT_TO_POINTER(imgid));
+  GList *imgs = g_list_copy((GList *)img);
   if(imgs)
   {
     GList *undo = NULL;
-    if(group_on) dt_grouping_add_grouped_images(&imgs);
     if(undo_on) dt_undo_start_group(darktable.undo, DT_UNDO_COLORLABELS);
 
     _colorlabels_execute(imgs, labels, &undo, undo_on, clear_on ? DT_CA_SET : DT_CA_ADD);
@@ -198,31 +194,35 @@ void dt_colorlabels_set_labels(const int imgid, const int labels, const gboolean
   }
 }
 
-void dt_colorlabels_toggle_label(const int imgid, const int color, const gboolean undo_on, const gboolean group_on)
+void dt_colorlabels_toggle_label_on_list(const GList *list, const int color, const gboolean undo_on)
 {
   const int label = 1<<color;
-  GList *imgs = NULL;
-  if(imgid == -1)
-    imgs = dt_collection_get_selected(darktable.collection, -1);
-  else
-    imgs = g_list_append(imgs, GINT_TO_POINTER(imgid));
-  if(imgs)
+  GList *undo = NULL;
+  if(undo_on) dt_undo_start_group(darktable.undo, DT_UNDO_COLORLABELS);
+
+  if(color == 5)
   {
-    GList *undo = NULL;
-    if(group_on) dt_grouping_add_grouped_images(&imgs);
-    if(undo_on) dt_undo_start_group(darktable.undo, DT_UNDO_COLORLABELS);
-
-    _colorlabels_execute(imgs, label, &undo, undo_on, DT_CA_TOGGLE);
-
-    g_list_free(imgs);
-    if(undo_on)
-    {
-      dt_undo_record(darktable.undo, NULL, DT_UNDO_COLORLABELS, undo, _pop_undo, _colorlabels_undo_data_free);
-      dt_undo_end_group(darktable.undo);
-    }
-    dt_collection_hint_message(darktable.collection);
-    dt_control_signal_raise(darktable.signals, DT_SIGNAL_MOUSE_OVER_IMAGE_CHANGE);
+    _colorlabels_execute(list, 0, &undo, undo_on, DT_CA_SET);
   }
+  else
+  {
+    _colorlabels_execute(list, label, &undo, undo_on, DT_CA_TOGGLE);
+  }
+
+  // synchronise xmp files
+  GList *l = (GList *)list;
+  while(l)
+  {
+    dt_image_synch_xmp(GPOINTER_TO_INT(l->data));
+    l = g_list_next(l);
+  }
+
+  if(undo_on)
+  {
+    dt_undo_record(darktable.undo, NULL, DT_UNDO_COLORLABELS, undo, _pop_undo, _colorlabels_undo_data_free);
+    dt_undo_end_group(darktable.undo);
+  }
+  dt_collection_hint_message(darktable.collection);
 }
 
 int dt_colorlabels_check_label(const int imgid, const int color)
@@ -244,35 +244,6 @@ int dt_colorlabels_check_label(const int imgid, const int color)
     sqlite3_finalize(stmt);
     return 0;
   }
-}
-
-gboolean dt_colorlabels_key_accel_callback(GtkAccelGroup *accel_group, GObject *acceleratable, guint keyval,
-                                           GdkModifierType modifier, gpointer data)
-{
-  const int color = GPOINTER_TO_INT(data);
-  const int32_t selected = dt_view_get_image_to_act_on();
-
-    switch(color)
-    {
-      case 0:
-      case 1:
-      case 2:
-      case 3:
-      case 4: // colors red, yellow, green, blue, purple
-        dt_colorlabels_toggle_label(selected, color, TRUE, TRUE);
-        break;
-      case 5:
-      default: // remove all selected
-        dt_colorlabels_set_labels(selected, 0, TRUE, TRUE, TRUE);
-        break;
-    }
-
-  // synch to file:
-  // TODO: move color labels to image_t cache and sync via write_get!
-  dt_image_synch_xmp(selected);
-  dt_control_signal_raise(darktable.signals, DT_SIGNAL_FILMROLLS_CHANGED);
-  dt_control_queue_redraw_center();
-  return TRUE;
 }
 
 // FIXME: XMP uses Red, Green, ... while we use red, green, ... What should this function return?

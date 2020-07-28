@@ -106,6 +106,7 @@ void connect_key_accels(dt_lib_module_t *self)
   dt_accel_connect_button_lib(self, "compress history stack", d->compress_button);
 }
 
+#define ellipsize_button(button) gtk_label_set_ellipsize(GTK_LABEL(gtk_bin_get_child(GTK_BIN(button))), PANGO_ELLIPSIZE_END);
 void gui_init(dt_lib_module_t *self)
 {
   /* initialize ui widgets */
@@ -125,13 +126,15 @@ void gui_init(dt_lib_module_t *self)
   GtkWidget *hhbox = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 0);
 
   d->compress_button = gtk_button_new_with_label(_("compress history stack"));
+  ellipsize_button(d->compress_button);
   gtk_widget_set_tooltip_text(d->compress_button, _("create a minimal history stack which produces the same image"));
   g_signal_connect(G_OBJECT(d->compress_button), "clicked", G_CALLBACK(_lib_history_compress_clicked_callback), self);
 
   /* add toolbar button for creating style */
-  d->create_button = dtgtk_button_new(dtgtk_cairo_paint_styles, CPF_DO_NOT_USE_BORDER, NULL);
+  d->create_button = dtgtk_button_new(dtgtk_cairo_paint_styles, CPF_NONE, NULL);
   g_signal_connect(G_OBJECT(d->create_button), "clicked",
                    G_CALLBACK(_lib_history_create_style_button_clicked_callback), NULL);
+  gtk_widget_set_name(d->create_button, "non-flat");
   gtk_widget_set_tooltip_text(d->create_button, _("create a style from the current history stack"));
 
   /* add buttons to buttonbox */
@@ -178,11 +181,11 @@ static GtkWidget *_lib_history_create_button(dt_lib_module_t *self, int num, con
   /* create toggle button */
   GtkWidget *widget = gtk_toggle_button_new_with_label(label);
   gtk_widget_set_halign(gtk_bin_get_child(GTK_BIN(widget)), GTK_ALIGN_START);
+  ellipsize_button(widget);
 
   if(always_on)
   {
-    onoff = dtgtk_button_new(dtgtk_cairo_paint_switch_on,
-                             CPF_STYLE_FLAT | CPF_BG_TRANSPARENT | CPF_DO_NOT_USE_BORDER, NULL);
+    onoff = dtgtk_button_new(dtgtk_cairo_paint_switch_on, CPF_STYLE_FLAT | CPF_BG_TRANSPARENT, NULL);
     gtk_widget_set_name(onoff, "history-switch-always-enabled");
     gtk_widget_set_name(widget, "history-button-always-enabled");
     dtgtk_button_set_active(DTGTK_BUTTON(onoff), TRUE);
@@ -190,8 +193,7 @@ static GtkWidget *_lib_history_create_button(dt_lib_module_t *self, int num, con
   }
   else if(default_enabled)
   {
-    onoff = dtgtk_button_new(dtgtk_cairo_paint_switch,
-                             CPF_STYLE_FLAT | CPF_BG_TRANSPARENT | CPF_DO_NOT_USE_BORDER, NULL);
+    onoff = dtgtk_button_new(dtgtk_cairo_paint_switch, CPF_STYLE_FLAT | CPF_BG_TRANSPARENT, NULL);
     gtk_widget_set_name(onoff, "history-switch-default-enabled");
     gtk_widget_set_name(widget, "history-button-default-enabled");
     dtgtk_button_set_active(DTGTK_BUTTON(onoff), enabled);
@@ -201,15 +203,13 @@ static GtkWidget *_lib_history_create_button(dt_lib_module_t *self, int num, con
   {
     if(deprecated)
     {
-      onoff = dtgtk_button_new(dtgtk_cairo_paint_switch_deprecated,
-                               CPF_STYLE_FLAT | CPF_BG_TRANSPARENT | CPF_DO_NOT_USE_BORDER, NULL);
+      onoff = dtgtk_button_new(dtgtk_cairo_paint_switch_deprecated, CPF_STYLE_FLAT | CPF_BG_TRANSPARENT, NULL);
       gtk_widget_set_name(onoff, "history-switch-deprecated");
       gtk_widget_set_tooltip_text(onoff, _("deprecated module"));
     }
     else
     {
-      onoff = dtgtk_button_new(dtgtk_cairo_paint_switch,
-                               CPF_STYLE_FLAT | CPF_BG_TRANSPARENT | CPF_DO_NOT_USE_BORDER, NULL);
+      onoff = dtgtk_button_new(dtgtk_cairo_paint_switch, CPF_STYLE_FLAT | CPF_BG_TRANSPARENT, NULL);
       gtk_widget_set_name(onoff, enabled ? "history-switch-enabled" : "history-switch");
     }
     gtk_widget_set_name(widget, enabled ? "history-button-enabled" : "history-button");
@@ -234,6 +234,7 @@ static GtkWidget *_lib_history_create_button(dt_lib_module_t *self, int num, con
 
   return hbox;
 }
+#undef ellipsize_button
 
 static void _reset_module_instance(GList *hist, dt_iop_module_t *module, int multi_priority)
 {
@@ -380,8 +381,7 @@ static int _check_deleted_instances(dt_develop_t *dev, GList **_iop_list, GList 
 
       if(darktable.develop->gui_module == mod) dt_iop_request_focus(NULL);
 
-      const int reset = darktable.gui->reset;
-      darktable.gui->reset = 1;
+      ++darktable.gui->reset;
 
       // we remove the plugin effectively
       if(!dt_iop_is_hidden(mod))
@@ -400,13 +400,13 @@ static int _check_deleted_instances(dt_develop_t *dev, GList **_iop_list, GList 
       dt_undo_iterate_internal(darktable.undo, DT_UNDO_HISTORY, mod, &_history_invalidate_cb);
 
       // we cleanup the module
-      dt_accel_disconnect_list(mod->accel_closures);
+      dt_accel_disconnect_list(&mod->accel_closures);
       dt_accel_cleanup_locals_iop(mod);
       mod->accel_closures = NULL;
       // don't delete the module, a pipe may still need it
       dev->alliop = g_list_append(dev->alliop, mod);
 
-      darktable.gui->reset = reset;
+      --darktable.gui->reset;
 
       // and reset the list
       modules = g_list_first(iop_list);
@@ -498,7 +498,9 @@ static int _create_deleted_modules(GList **_iop_list, GList *history_list)
 
       if(!dt_iop_is_hidden(module))
       {
+        ++darktable.gui->reset;
         module->gui_init(module);
+        --darktable.gui->reset;
       }
 
       // adjust the multi_name of the new module
@@ -811,6 +813,7 @@ static void _lib_history_button_clicked_callback(GtkWidget *widget, gpointer use
   /* signal history changed */
   dt_control_signal_raise(darktable.signals, DT_SIGNAL_DEVELOP_HISTORY_CHANGE);
   dt_dev_modulegroups_set(darktable.develop, dt_dev_modulegroups_get(darktable.develop));
+  dt_iop_connect_accels_all() ;
 }
 
 static void _lib_history_create_style_button_clicked_callback(GtkWidget *widget, gpointer user_data)

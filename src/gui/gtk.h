@@ -113,6 +113,8 @@ typedef struct dt_gui_gtk_t
 
   double dpi, dpi_factor, ppd;
 
+  int icon_size; // size of top panel icons
+
   // store which gtkrc we loaded:
   char gtkrc[PATH_MAX];
 
@@ -310,16 +312,25 @@ void dt_ui_update_scrollbars(struct dt_ui_t *ui);
 void dt_ui_scrollbars_show(struct dt_ui_t *ui, gboolean show);
 /** \brief toggle view of panels eg. collaps/expands to previous view state */
 void dt_ui_toggle_panels_visibility(struct dt_ui_t *ui);
-/** \brief toggle view of header */
-void dt_ui_toggle_header(struct dt_ui_t *ui);
 /** \brief draw user's attention */
 void dt_ui_notify_user();
 /** \brief get visible state of panel */
 gboolean dt_ui_panel_visible(struct dt_ui_t *ui, const dt_ui_panel_t);
+/**  \brief get width of right, left, or bottom panel */
+int dt_ui_panel_get_size(struct dt_ui_t *ui, const dt_ui_panel_t p);
+/**  \brief set width of right, left, or bottom panel */
+void dt_ui_panel_set_size(struct dt_ui_t *ui, const dt_ui_panel_t p, int s);
 /** \brief get the center drawable widget */
 GtkWidget *dt_ui_center(struct dt_ui_t *ui);
+GtkWidget *dt_ui_center_base(struct dt_ui_t *ui);
 /** \brief get the main window widget */
 GtkWidget *dt_ui_main_window(struct dt_ui_t *ui);
+/** \brief get the thumb table */
+struct dt_thumbtable_t *dt_ui_thumbtable(struct dt_ui_t *ui);
+/** \brief get the log message widget */
+GtkWidget *dt_ui_log_msg(struct dt_ui_t *ui);
+/** \brief get the toast message widget */
+GtkWidget *dt_ui_toast_msg(struct dt_ui_t *ui);
 
 GtkBox *dt_ui_get_container(struct dt_ui_t *ui, const dt_ui_container_t c);
 
@@ -364,6 +375,16 @@ void dt_gui_add_help_link(GtkWidget *widget, const char *link);
 
 // load a CSS theme
 void dt_gui_load_theme(const char *theme);
+
+// reload GUI scalings
+void dt_configure_ppd_dpi(dt_gui_gtk_t *gui);
+
+// translate key press events to remove any modifiers used to produce the keyval
+// for example when the shift key is used to create the asterisk character
+guint dt_gui_translated_key_state(GdkEventKey *event);
+
+// return modifier keys currently pressed, independent of any key event
+GdkModifierType dt_key_modifier_state();
 
 // modelines: These editor modelines have been set for all relevant files by tools/update_modelines.sh
 // vim: shiftwidth=2 expandtab tabstop=2 cindent
